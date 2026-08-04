@@ -32,6 +32,7 @@ export const shopLoader = async (request) => {
         shop {
           name
           email
+          shopOwnerName
           myshopifyDomain
           currencyCode
           plan {
