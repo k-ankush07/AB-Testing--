@@ -1,18 +1,29 @@
-import { useState, useRef } from "react";
-import { useSearchParams, Link } from "react-router";
-import {
-    Page,
-    Text,
-    BlockStack,
-    InlineStack,
-    Button,
-    Badge,
-    Tabs,
-    Card,
-    TextField,
-    Box,
-} from "@shopify/polaris";
-import { PlusIcon, ArrowRightIcon } from "@shopify/polaris-icons";
+import { useState, useRef, useEffect } from "react";
+import TestGroups from "./components/Dashboard/testGroups";
+import Mods from "./components/Dashboard/Mods";
+import { requireShopData } from "./components/shop.server";
+import { useLoaderData, useLocation, useSearchParams, Link, useNavigate } from "react-router";
+import { apiRequest, apiGet, apiPut } from "./components/utils/api";
+
+import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Spinner  } from "@shopify/polaris";
+
+const TAB_TO_PARAM = {
+    0: "testGroups",
+    1: "mods",
+    2: "targeting",
+    3: "analytics",
+    4: "preview",
+    5: "results",
+};
+
+const PARAM_TO_TAB = {
+    testGroups: 0,
+    mods: 1,
+    targeting: 2,
+    analytics: 3,
+    preview: 4,
+    results: 5,
+};
 
 const COLORS = ["#2563EB", "#16A34A", "#2563EB", "#9333EA", "#F59E0B"];
 
@@ -34,25 +45,89 @@ function redistribute(groups) {
     }));
 }
 
+export const loader = async ({ request }) => {
+    return await requireShopData(request);
+};
+
+const today = new Date().toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+});
+
 export default function Experiment() {
-    const [searchParams] = useSearchParams();
+    const location = useLocation();
+    const { shop: shopFromLoader } = useLoaderData();
+    const shop = location.state?.shop || shopFromLoader;
+    const [saving, setSaving] = useState(false);
+    const [loadingExperiment, setLoadingExperiment] = useState(false);
+    const navigate = useNavigate();
+
+    const [searchParams, setSearchParams] = useSearchParams();
+    const action = searchParams.get("action") || "new";
+    const experimentId = searchParams.get("id");
+    const isEditMode = action === "edit" && !!experimentId;
+
     const tab = searchParams.get("tab") || "testGroups";
+
+    const [experimentName, setExperimentName] = useState(`Content Edits Test · ${today}`);
+    const [editingName, setEditingName] = useState(false);
 
     const [groups, setGroups] = useState(() =>
         redistribute([makeGroup(0), makeGroup(1)])
     );
     const [editingId, setEditingId] = useState(null);
-    const [selectedTab, setSelectedTab] = useState(0);
+    const selectedTab = PARAM_TO_TAB[tab] ?? 0;
     const barRef = useRef(null);
+
+    // 🔑 EDIT MODE: existing experiment data load karo
+    useEffect(() => {
+        if (!isEditMode) return;
+
+        // Pehle state se try karo (Dashboard se navigate hua tha toh already mil sakta hai)
+        const experimentFromState = location.state?.experiment;
+
+        if (experimentFromState) {
+            setExperimentName(experimentFromState.name);
+            setGroups(experimentFromState.testGroups);
+            return;
+        }
+
+        // State mein nahi mila (jaise page refresh hua), API se fetch karo
+        const loadExperiment = async () => {
+            setLoadingExperiment(true);
+            try {
+                const data = await apiGet(`/experiments/${experimentId}`);
+                setExperimentName(data.experiment.name);
+                setGroups(data.experiment.testGroups);
+            } catch (err) {
+                console.error("Failed to load experiment:", err);
+                alert("Failed to load experiment data");
+                navigate("/app");
+            } finally {
+                setLoadingExperiment(false);
+            }
+        };
+
+        loadExperiment();
+    }, [isEditMode, experimentId]);
 
     const tabs = [
         { id: "testGroups", content: `Test Groups (${groups.length})` },
-        { id: "modifications", content: "Modifications" },
+        { id: "mods", content: "Modifications" },
         { id: "targeting", content: "Targeting" },
         { id: "analytics", content: "Configure Analytics" },
         { id: "preview", content: "Preview" },
         { id: "results", content: "Results", disabled: true },
     ];
+
+    const handleTabChange = (selectedTabIndex) => {
+        const newTabParam = TAB_TO_PARAM[selectedTabIndex];
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set("tab", newTabParam);
+            return next;
+        });
+    };
 
     const addGroup = () => {
         if (groups.length >= 5) return;
@@ -104,7 +179,53 @@ export default function Experiment() {
         window.addEventListener("mouseup", onMouseUp);
     };
 
-    let cumulative = 0;
+    const handleSave = async () => {
+        setSaving(true);
+        try {
+            const totalPercent = groups.reduce((sum, g) => sum + g.percent, 0);
+            if (totalPercent !== 100) {
+                alert("Test group percentages must add up to 100%");
+                setSaving(false);
+                return;
+            }
+
+            const payload = {
+                shop: shop?.shop?.myshopifyDomain || shop?.myshopifyDomain,
+                type: "content/onsiteEdits",
+                name: experimentName,
+                testGroups: groups.map((g) => ({
+                    id: g.id,
+                    name: g.name,
+                    percent: g.percent,
+                })),
+            };
+
+            const data = isEditMode
+                ? await apiPut(`/experiments/${experimentId}`, payload)
+                : await apiRequest("/experiments", {
+                    method: "POST",
+                    body: JSON.stringify(payload),
+                });
+
+            console.log("Experiment saved:", data.experiment);
+            navigate("/app");
+        } catch (err) {
+            console.error(err);
+            alert("Error saving experiment: " + err.message);
+        } finally {
+            setSaving(false);
+        }
+    };
+
+    if (loadingExperiment) {
+        return (
+            <Page fullWidth>
+                <InlineStack align="center">
+                    <Spinner accessibilityLabel="Loading experiment" size="large" />
+                </InlineStack>
+            </Page>
+        );
+    }
 
     return (
         <Page fullWidth>
@@ -116,13 +237,30 @@ export default function Experiment() {
                                 <Text as="span" tone="subdued">Content</Text>
                             </Link>
                             <Text as="span" tone="subdued">›</Text>
-                            <Text as="span" tone="subdued">Content Edits Test · Aug 4</Text>
+                            <Text as="span" tone="subdued">{experimentName}</Text>
                         </InlineStack>
-                        <Text as="h1" variant="headingLg">
-                            Content Edits Test · Aug 4
-                        </Text>
+
+                        {editingName ? (
+                            <TextField
+                                labelHidden
+                                label="Experiment name"
+                                autoFocus
+                                value={experimentName}
+                                onChange={setExperimentName}
+                                onBlur={() => setEditingName(false)}
+                            />
+                        ) : (
+                            <Text as="h1" variant="headingLg">
+                                <span
+                                    style={{ cursor: "pointer" }}
+                                    onClick={() => setEditingName(true)}
+                                >
+                                    {experimentName} ✎
+                                </span>
+                            </Text>
+                        )}
                     </BlockStack>
-                    <Button variant="primary" tone="success">
+                    <Button variant="primary" tone="success" onClick={handleSave} loading={saving}>
                         Save
                     </Button>
                 </InlineStack>
@@ -131,155 +269,21 @@ export default function Experiment() {
                     <Badge>All Visitors</Badge>
                 </InlineStack>
 
-                <Tabs tabs={tabs} selected={selectedTab} onSelect={setSelectedTab} />
-
-                {tab === "testGroups" && selectedTab === 0 && (
-                    <Card>
-                        <BlockStack gap="400">
-                            <InlineStack align="space-between" blockAlign="start">
-                                <BlockStack gap="100">
-                                    <Text as="h2" variant="headingMd">Test Groups</Text>
-                                    <Text as="p" tone="subdued">
-                                        Add up to 5 test groups, naming each one, and allocate a
-                                        percent of site traffic to each.
-                                    </Text>
-                                </BlockStack>
-                                <Button icon={ArrowRightIcon}>Next step</Button>
-                            </InlineStack>
-
-                            <Box paddingBlockStart="400">
-                                <InlineStack gap="600" wrap={false} blockAlign="center">
-                                    {groups.map((group, index) => {
-                                        const color = COLORS[index % COLORS.length];
-                                        return (
-                                            <Box key={group.id} position="relative">
-                                                {index !== 0 && groups.length > 1 && (
-                                                    <Box
-                                                        style={{
-                                                            position: "absolute",
-                                                            top: -4,
-                                                            right: -4,
-                                                            cursor: "pointer",
-                                                        }}
-                                                        onClick={() => removeGroup(group.id)}
-                                                    >
-                                                        <Text as="span">✕</Text>
-                                                    </Box>
-                                                )}
-                                                <BlockStack gap="200" align="center">
-                                                    <div
-                                                        style={{
-                                                            width: 140,
-                                                            height: 140,
-                                                            borderRadius: "50%",
-                                                            border: `3px solid ${color}`,
-                                                            display: "flex",
-                                                            flexDirection: "column",
-                                                            alignItems: "center",
-                                                            justifyContent: "center",
-                                                            gap: 4,
-                                                        }}
-                                                    >
-                                                        <Text as="span" variant="heading2xl">
-                                                            <span style={{ color }}>{group.percent}%</span>
-                                                        </Text>
-                                                        {editingId === group.id ? (
-                                                            <TextField
-                                                                labelHidden
-                                                                label="name"
-                                                                autoFocus
-                                                                value={group.name}
-                                                                onChange={(val) => renameGroup(group.id, val)}
-                                                                onBlur={() => setEditingId(null)}
-                                                            />
-                                                        ) : (
-                                                            <span
-                                                                style={{
-                                                                    color,
-                                                                    textDecoration: "underline",
-                                                                    cursor: "pointer",
-                                                                    fontSize: 13,
-                                                                }}
-                                                                onClick={() => setEditingId(group.id)}
-                                                            >
-                                                                {group.name} ✎
-                                                            </span>
-                                                        )}
-                                                        <span style={{ fontSize: 12, opacity: 0.6 }}>⇄</span>
-                                                    </div>
-                                                </BlockStack>
-                                            </Box>
-                                        );
-                                    })}
-
-                                    {groups.length < 5 && (
-                                        <Button icon={PlusIcon} onClick={addGroup} accessibilityLabel="Add group" />
-                                    )}
-                                </InlineStack>
-                            </Box>
-
-                            <div
-                                ref={barRef}
-                                style={{
-                                    position: "relative",
-                                    width: "100%",
-                                    height: 8,
-                                    borderRadius: 4,
-                                    overflow: "hidden",
-                                    display: "flex",
-                                }}
-                            >
-                                <div style={{ display: "flex", width: "100%" }}>
-                                    {groups.map((g, i) => (
-                                        <div
-                                            key={g.id}
-                                            style={{
-                                                width: `${g.percent}%`,
-                                                background: COLORS[i % COLORS.length],
-                                                position: "relative",
-                                            }}
-                                        >
-                                            {i < groups.length - 1 && (
-                                                <div
-                                                    onMouseDown={handleDragStart(i)}
-                                                    style={{
-                                                        position: "absolute",
-                                                        right: -8,
-                                                        top: -6,
-                                                        width: 20,
-                                                        height: 20,
-                                                        borderRadius: "50%",
-                                                        background: "#fff",
-                                                        border: `3px solid ${COLORS[i % COLORS.length]}`,
-                                                        cursor: "ew-resize",
-                                                        zIndex: 2,
-                                                    }}
-                                                />
-                                            )}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <div style={{ display: "flex", width: "100%" }}>
-                                {groups.map((g, i) => (
-                                    <div
-                                        key={g.id}
-                                        style={{
-                                            width: `${g.percent}%`,
-                                            textAlign:
-                                                i === 0 ? "left" : i === groups.length - 1 ? "right" : "center",
-                                        }}
-                                    >
-                                        <Text as="span" variant="bodySm" tone="subdued">
-                                            <span style={{ color: COLORS[i % COLORS.length] }}>{g.name}</span>
-                                        </Text>
-                                    </div>
-                                ))}
-                            </div>
-                        </BlockStack>
-                    </Card>
-                )}
+                <Tabs tabs={tabs} selected={selectedTab} onSelect={handleTabChange} />
+                {tab === "testGroups" && (<TestGroups
+                    groups={groups}
+                    COLORS={COLORS}
+                    editingId={editingId}
+                    addGroup={addGroup}
+                    barRef={barRef}
+                    handleDragStart={handleDragStart}
+                    setEditingId={setEditingId}
+                    removeGroup={removeGroup}
+                    renameGroup={renameGroup}
+                />)}
+                {tab === "mods" && (<Mods experimentId={experimentId}
+                    shopDomain={shop?.shop?.myshopifyDomain || shop?.myshopifyDomain}
+                />)}
             </BlockStack>
         </Page>
     );
