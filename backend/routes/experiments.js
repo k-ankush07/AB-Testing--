@@ -72,8 +72,17 @@ router.patch("/experiments/:id/status", async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
+    const experiment = await Experiment.findOne({ experimentId: id });
+    if (!experiment) {
+      return res.status(404).json({ error: "Experiment not found" });
+    }
+
     const updateData = { status };
-    if (status === "active") updateData.startedAt = new Date();
+    // startedAt sirf PEHLI baar set karo — dobara active karne pe overwrite mat karo,
+    // warna merge order (first-wins by startedAt) galat ho jaata hai
+    if (status === "active" && !experiment.startedAt) {
+      updateData.startedAt = new Date();
+    }
     if (status === "ended") updateData.endedAt = new Date();
 
     const updated = await Experiment.findOneAndUpdate(
@@ -81,10 +90,6 @@ router.patch("/experiments/:id/status", async (req, res) => {
       updateData,
       { new: true }
     );
-
-    if (!updated) {
-      return res.status(404).json({ error: "Experiment not found" });
-    }
 
     return res.json({ experiment: updated });
   } catch (err) {

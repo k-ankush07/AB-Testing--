@@ -7,7 +7,7 @@ const testGroupSchema = new mongoose.Schema(
     name: { type: String, required: true },
     percent: { type: Number, required: true },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const modificationSchema = new mongoose.Schema(
@@ -19,7 +19,7 @@ const modificationSchema = new mongoose.Schema(
     originalHTML: { type: String, default: "" },
     groupValues: { type: mongoose.Schema.Types.Mixed, default: {} },
   },
-  { _id: false }
+  { _id: false },
 );
 
 const experimentSchema = new mongoose.Schema(
@@ -40,10 +40,11 @@ const experimentSchema = new mongoose.Schema(
     testGroups: [testGroupSchema],
     modifications: [modificationSchema],
     visitors: { type: Number, default: 0 },
+    toolbarExited: { type: Boolean, default: false },
     startedAt: { type: Date, default: null },
     endedAt: { type: Date, default: null },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 export default mongoose.model("Experiment", experimentSchema);

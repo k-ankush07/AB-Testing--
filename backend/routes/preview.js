@@ -36,6 +36,41 @@ router.get("/preview/active", async (req, res) => {
   }
 });
 
+router.get("/preview/active-list", async (req, res) => {
+  try {
+    const { shop } = req.query;
+    if (!shop) {
+      return res.status(400).json({ error: "Missing shop" });
+    }
+
+    const experiments = await Experiment.find({
+      shop,
+      status: "active",
+    }).sort({ startedAt: 1 });
+
+    if (!experiments.length) {
+      return res.json({ experiments: [] });
+    }
+
+    const payload = experiments.map((experiment) => ({
+      experimentId: experiment.experimentId,
+      status: experiment.status,
+      name: experiment.name,
+      testGroups: experiment.testGroups,
+      modifications: experiment.modifications || [],
+      startedAt: experiment.startedAt,
+      updatedAt: experiment.updatedAt,
+    }));
+
+    return res.json({ experiments: payload });
+  } catch (err) {
+    console.error("Active list lookup error:", err.message);
+    return res
+      .status(500)
+      .json({ error: "Failed to look up active experiments" });
+  }
+});
+
 router.get("/preview/:id", async (req, res) => {
   try {
     const { id } = req.params;
@@ -65,6 +100,7 @@ router.get("/preview/:id", async (req, res) => {
       experiment: {
         experimentId: experiment.experimentId,
         status: experiment.status,
+        toolbarExited: experiment.toolbarExited,
         name: experiment.name,
         testGroups: experiment.testGroups,
         modifications: experiment.modifications || [],
@@ -107,6 +143,37 @@ router.put("/preview/:id/modifications", async (req, res) => {
   } catch (err) {
     console.error("Save modifications error:", err.message);
     return res.status(500).json({ error: "Failed to save modifications" });
+  }
+});
+
+router.put("/preview/:id/toolbar-exit", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { token, toolbarExited } = req.body;
+
+    const decoded = jwt.verify(token, process.env.API_SECRET_KEY);
+
+    if (decoded.experimentId !== id) {
+      return res.status(403).json({ error: "Token mismatch" });
+    }
+
+    const experiment = await Experiment.findOneAndUpdate(
+      { experimentId: id },
+      { toolbarExited },
+      { new: true }
+    );
+
+    if (!experiment) {
+      return res.status(404).json({ error: "Experiment not found" });
+    }
+
+    res.json({
+      success: true,
+      toolbarExited: experiment.toolbarExited,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update toolbar state" });
   }
 });
 

@@ -1,4 +1,4 @@
-;(function () {
+(function () {
   if (window.__igPreviewToolbarApiLoaded) return;
   window.__igPreviewToolbarApiLoaded = true;
   window.igtb = window.igtb || {};
@@ -90,6 +90,72 @@
     return picked;
   };
 
+  ns.isBuilderMode = function () {
+    const params = new URLSearchParams(window.location.search);
+    return !!(
+      params.get("ig-preview") ||
+      params.get("ig-builder-mode") ||
+      params.get("ig-auth-token")
+    );
+  };
+
+  ns.hasBuilderToken = function () {
+    const params = new URLSearchParams(window.location.search);
+
+    const hasToken =
+      params.has("ig-auth-token") ||
+      window.location.hash.includes("ig-auth-token");
+
+    if (hasToken) {
+      ns.markBuilderSession();
+      return true;
+    }
+
+    return ns.isBuilderSession();
+  };
+
+  // ---------- TOOLBAR EXIT FLAG (persistent) ----------
+  ns.TOOLBAR_EXIT_KEY = "ig-toolbar-exited";
+
+  ns.BUILDER_SESSION_KEY = "ig-builder-session";
+
+  ns.markBuilderSession = function () {
+    sessionStorage.setItem(ns.BUILDER_SESSION_KEY, "1");
+  };
+
+  ns.isBuilderSession = function () {
+    return sessionStorage.getItem(ns.BUILDER_SESSION_KEY) === "1";
+  };
+
+  ns.clearBuilderSession = function () {
+    sessionStorage.removeItem(ns.BUILDER_SESSION_KEY);
+  };
+
+  ns.isPreviewPage = function () {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("ig-preview");
+  };
+
+  ns.isToolbarExited = function () {
+    try {
+      return sessionStorage.getItem(ns.TOOLBAR_EXIT_KEY) === "1";
+    } catch (e) {
+      return false;
+    }
+  };
+
+  ns.markToolbarExited = function () {
+    try {
+      sessionStorage.setItem(ns.TOOLBAR_EXIT_KEY, "1");
+    } catch (e) {}
+  };
+
+  ns.clearToolbarExited = function () {
+    try {
+      sessionStorage.removeItem(ns.TOOLBAR_EXIT_KEY);
+    } catch (e) {}
+  };
+
   ns.resolveActivePreview = async function () {
     if (ns.state.previewId) return true;
 
@@ -105,7 +171,10 @@
 
       ns.state.previewId = data.previewId;
       ns.state.authToken = data.token;
-      sessionStorage.setItem(`ig-token-${ns.state.previewId}`, ns.state.authToken);
+      sessionStorage.setItem(
+        `ig-token-${ns.state.previewId}`,
+        ns.state.authToken,
+      );
       return true;
     } catch (err) {
       console.error("IG Preview: active experiment lookup failed", err);
@@ -113,54 +182,163 @@
     }
   };
 
+  // ---------- saare active experiments fetch + assign + merge ----------
+  ns.fetchAndMergeActiveExperiments = async function () {
+    const shop = window.location.hostname;
+    const res = await fetch(
+      `${ns.API_BASE}/preview/active-list?shop=${encodeURIComponent(shop)}`,
+    );
+    if (!res.ok) return null;
+
+    const data = await res.json();
+    const experimentsRaw = (data && data.experiments) || [];
+    if (!experimentsRaw.length) return null;
+
+    experimentsRaw.sort(
+      (a, b) => new Date(a.startedAt) - new Date(b.startedAt),
+    );
+
+    const experimentsWithGroups = experimentsRaw.map((experimentData) => {
+      experimentData.modifications = (
+        experimentData.modifications || []
+      ).filter((m) => m && m.groupValues && m.selector);
+
+      const assignedGroup = ns.getAssignedGroup(
+        experimentData.experimentId,
+        experimentData.testGroups,
+      );
+      let groupIndex = experimentData.testGroups.findIndex(
+        (g) => g.id === assignedGroup.id,
+      );
+      if (groupIndex === -1) groupIndex = 0;
+
+      return { experimentData, groupIndex };
+    });
+
+    return experimentsWithGroups;
+  };
+
   ns.init = async function () {
     ns.initializeTokens();
-    const hasPreview = await ns.resolveActivePreview();
-    if (!hasPreview || !ns.state.previewId) return;
-    if (!ns.state.authToken) {
-      console.error("IG Preview: No auth token available");
+
+    if (!ns.isPreviewPage()) {
+      await ns.runMergeFlow();
       return;
     }
 
+    if (!ns.state.previewId && ns.isToolbarExited()) {
+      const cached = ns.readCache();
+      if (cached && cached.experiments && cached.experiments.length) {
+        const resolved = ns.buildResolvedModifications(cached.experiments);
+        ns.applyResolvedModifications(resolved);
+        ns.revealPreviewPage();
+
+        ns.refreshExperimentInBackground();
+        return;
+      }
+    }
+
+    const hasPreview = await ns.resolveActivePreview();
+
+    if (hasPreview && ns.state.previewId) {
+      if (!ns.state.authToken) {
+        console.error("IG Preview: No auth token available");
+        ns.revealPreviewPage();
+        return;
+      }
+
+      try {
+        const res = await fetch(
+          `${ns.API_BASE}/preview/${ns.state.previewId}?token=${encodeURIComponent(ns.state.authToken)}`,
+        );
+        if (!res.ok) throw new Error("Failed to load preview data");
+        const data = await res.json();
+
+        ns.state.experimentData = data.experiment || data;
+        ns.state.experimentData.modifications = (
+          ns.state.experimentData.modifications || []
+        ).filter((m) => m && m.groupValues && m.selector);
+
+        const status = ns.state.experimentData.status;
+
+        if (status === "pending" || status === "active") {
+          const params = new URLSearchParams(window.location.search);
+          const hasExplicitBuilderAuth = !!(
+            params.get("ig-builder-mode") || params.get("ig-auth-token")
+          );
+
+          if (ns.state.experimentData.toolbarExited && !ns.hasBuilderToken()) {
+            ns.markToolbarExited();
+            ns.applyAllModifications();
+            ns.revealPreviewPage();
+            return;
+          }
+
+          if (status === "active") {
+            const assignedGroup = ns.getAssignedGroup(
+              ns.state.experimentData.experimentId,
+              ns.state.experimentData.testGroups,
+            );
+            ns.state.selectedGroupIndex =
+              ns.state.experimentData.testGroups.findIndex(
+                (g) => g.id === assignedGroup.id,
+              );
+            if (ns.state.selectedGroupIndex === -1)
+              ns.state.selectedGroupIndex = 0;
+          } else {
+            ns.state.selectedGroupIndex = 0;
+          }
+
+          ns.createToolbar();
+          if (!ns.isBuilderSession()) {
+            ns.applyAllModifications();
+          }
+          ns.showSuccessToast(`Loaded '${ns.state.experimentData.name}'`);
+          ns.revealPreviewPage();
+
+          const cleanUrl = `${window.location.pathname}?ig-preview=${ns.state.previewId}&ig-builder-entity=experiment`;
+          window.history.replaceState(null, "", cleanUrl);
+          return;
+        }
+
+        ns.revealPreviewPage();
+        return;
+      } catch (err) {
+        console.error("IG Preview error:", err);
+        ns.revealPreviewPage();
+        return;
+      }
+    }
+
+    await ns.runMergeFlow();
+  };
+
+  ns.runMergeFlow = async function () {
     try {
-      const res = await fetch(
-        `${ns.API_BASE}/preview/${ns.state.previewId}?token=${encodeURIComponent(ns.state.authToken)}`,
-      );
-      if (!res.ok) throw new Error("Failed to load preview data");
-      const data = await res.json();
-      ns.state.experimentData = data.experiment || data;
-      ns.state.experimentData.modifications = (
-        ns.state.experimentData.modifications || []
-      ).filter((m) => m && m.groupValues && m.selector);
-
-      if (ns.state.experimentData.status === "active") {
-        const assignedGroup = ns.getAssignedGroup(
-          ns.state.experimentData.experimentId,
-          ns.state.experimentData.testGroups,
-        );
-        ns.state.selectedGroupIndex = ns.state.experimentData.testGroups.findIndex(
-          (g) => g.id === assignedGroup.id,
-        );
-        if (ns.state.selectedGroupIndex === -1) ns.state.selectedGroupIndex = 0;
-        ns.applyAllModifications();
+      const experimentsWithGroups = await ns.fetchAndMergeActiveExperiments();
+      if (!experimentsWithGroups) {
+        ns.revealPreviewPage();
         return;
       }
 
-      if (ns.state.experimentData.status !== "pending") {
-        console.log(
-          `IG Preview: experiment status is "${ns.state.experimentData.status}", toolbar hidden`,
-        );
-        return;
-      }
+      const resolved = ns.buildResolvedModifications(experimentsWithGroups);
+      ns.applyResolvedModifications(resolved);
+      ns.revealPreviewPage();
 
-      ns.createToolbar();
-      ns.applyAllModifications();
-      ns.showSuccessToast(`Loaded '${ns.state.experimentData.name}'`);
-
-      const cleanUrl = `${window.location.pathname}?ig-preview=${ns.state.previewId}&ig-builder-entity=experiment`;
-      window.history.replaceState(null, "", cleanUrl);
+      ns.writeCache(experimentsWithGroups);
     } catch (err) {
       console.error("IG Preview error:", err);
+      ns.revealPreviewPage();
+    }
+  };
+
+  ns.refreshExperimentInBackground = async function () {
+    try {
+      const experimentsWithGroups = await ns.fetchAndMergeActiveExperiments();
+      if (!experimentsWithGroups) return;
+      ns.writeCache(experimentsWithGroups);
+    } catch (err) {
+      console.error("IG Preview: background refresh failed", err);
     }
   };
 })();

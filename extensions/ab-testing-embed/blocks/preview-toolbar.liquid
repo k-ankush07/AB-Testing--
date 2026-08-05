@@ -1,12 +1,23 @@
-<script
-  src="{{ 'preview-toolbar.js' | asset_url }}"
-  defer
-></script>
+<style id="ig-antiflicker">
+  html[data-ig-hidden] { opacity: 0 !important; }
+</style>
+<script>
+(function () {
+  document.documentElement.setAttribute("data-ig-hidden", "1");
+  window.__igReveal = function () {
+    document.documentElement.removeAttribute("data-ig-hidden");
+  };
+  window.__igRevealTimer = setTimeout(window.__igReveal, 1200);
+})();
+</script>
+
+<link rel="preconnect" href="http://localhost:8001">
+<script src="{{ 'preview-toolbar.js' | asset_url }}"></script>
 
 {% schema %}
 {
   "name": "AB Test Toolbar",
-  "target": "body",
+  "target": "head",
   "settings": []
 }
 {% endschema %}

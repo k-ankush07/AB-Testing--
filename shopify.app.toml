@@ -2,7 +2,7 @@
 
 client_id = "05bcc0b4784c5196df9b274d67c57496"
 name = "Ab Testing"
-application_url = "https://holiday-moving-sri-departure.trycloudflare.com"
+application_url = "https://remarkable-butterfly-looksmart-louise.trycloudflare.com"
 embedded = true
 
 [build]
@@ -24,5 +24,5 @@ scopes = "write_products,write_themes,read_orders"
 
 [auth]
 redirect_urls = [
-  "https://holiday-moving-sri-departure.trycloudflare.com/api/auth"
+  "https://remarkable-butterfly-looksmart-louise.trycloudflare.com/api/auth"
 ]

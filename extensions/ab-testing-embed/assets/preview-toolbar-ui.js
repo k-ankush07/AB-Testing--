@@ -1,123 +1,8 @@
 (function () {
-  if (window.__igPreviewToolbarLoaded) return;
-  window.__igPreviewToolbarLoaded = true;
-  let editedFromReplacementsPanel = false;
-
-  const API_BASE = "http://localhost:8001/api";
-
-  const params = new URLSearchParams(window.location.search);
-  const hashParams = new URLSearchParams(window.location.hash.replace("#", ""));
-  let previewId = params.get("ig-preview");
-
-  function findPreviewIdInSession() {
-    for (let i = 0; i < sessionStorage.length; i += 1) {
-      const key = sessionStorage.key(i);
-      if (key && key.startsWith("ig-token-")) {
-        return key.replace("ig-token-", "");
-      }
-    }
-    return null;
-  }
-
-  if (!previewId) {
-    previewId = findPreviewIdInSession();
-  }
-
-  let authToken =
-    hashParams.get("ig-auth-token") ||
-    params.get("ig-auth-token") ||
-    (previewId ? sessionStorage.getItem(`ig-token-${previewId}`) : null);
-
-  const freshToken =
-    hashParams.get("ig-auth-token") || params.get("ig-auth-token");
-  if (freshToken && previewId) {
-    sessionStorage.setItem(`ig-token-${previewId}`, freshToken);
-  }
-
-  let experimentData = null;
-  let selectedGroupIndex = 0;
-  let highlightOn = true;
-  let hoverModeActive = false;
-  let currentHoverEl = null;
-  let currentTargetEl = null;
-  let pendingModification = null;
-  let saving = false;
-  let lastAppliedPreviewSignature = null;
-
-  function revealPreviewPage() {
-    if (window.__igPreviewHideController && typeof window.__igPreviewHideController.show === "function") {
-      window.__igPreviewHideController.show();
-    }
-    document.documentElement.classList.remove("ig-preview-hidden");
-    if (document.body) document.body.classList.remove("ig-preview-hidden");
-  }
-
-  function getPreviewCacheKey() {
-    return previewId ? `ig-preview-cache-${previewId}` : null;
-  }
-
-  function loadCachedPreviewData() {
-    const key = getPreviewCacheKey();
-    if (!key) return null;
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : null;
-    } catch (err) {
-      return null;
-    }
-  }
-
-  function savePreviewCache(data) {
-    const key = getPreviewCacheKey();
-    if (!key) return;
-    try {
-      localStorage.setItem(key, JSON.stringify(data));
-      lastAppliedPreviewSignature = JSON.stringify(data.modifications || []);
-    } catch (err) {
-      // ignore storage issues
-    }
-  }
-
-  function applyPreviewData(data, ensureToolbar) {
-    if (!data || !data.testGroups) return false;
-    experimentData = data;
-    experimentData.modifications = (
-      experimentData.modifications || []
-    ).filter((m) => m && m.groupValues && m.selector);
-
-    const assignedGroup = getAssignedGroup(
-      experimentData.experimentId,
-      experimentData.testGroups,
-    );
-    selectedGroupIndex = experimentData.testGroups.findIndex(
-      (g) => g.id === assignedGroup.id,
-    );
-    if (selectedGroupIndex === -1) selectedGroupIndex = 0;
-
-    const currentSignature = JSON.stringify(experimentData.modifications || []);
-    const shouldApply = currentSignature !== lastAppliedPreviewSignature;
-    lastAppliedPreviewSignature = currentSignature;
-
-    if (!shouldApply) {
-      if (ensureToolbar && experimentData.status === "pending") {
-        createToolbar();
-      }
-      return true;
-    }
-
-    if (experimentData.status === "pending") {
-      if (ensureToolbar) createToolbar();
-      applyAllModifications();
-      return true;
-    }
-
-    if (experimentData.status === "active") {
-      applyAllModifications();
-      return true;
-    }
-
-    return false;
-  }
+  if (window.__igPreviewToolbarUiLoaded) return;
+  window.__igPreviewToolbarUiLoaded = true;
+  window.igtb = window.igtb || {};
+  const ns = window.igtb;
 
   function timeAgo(dateStr) {
     const diff = Date.now() - new Date(dateStr).getTime();
@@ -202,7 +87,6 @@
       }
     }
 
-    // full-page structural fallback
     return buildPath(el, document.body);
   }
 
@@ -274,34 +158,44 @@
   }
 
   function onMouseMoveForHover(e) {
-    if (!hoverModeActive) return;
+    if (!ns.state.hoverModeActive) return;
     const el = getRealTargetAt(e.clientX, e.clientY);
     if (!el) return;
-    currentHoverEl = el;
+    ns.state.currentHoverEl = el;
     positionBoxOn(el, ensureHoverBox(), "#2563EB");
   }
 
   function onClickForHover(e) {
-    if (!hoverModeActive) return;
+    if (!ns.state.hoverModeActive) return;
     const el = getRealTargetAt(e.clientX, e.clientY);
     if (!el) return;
     e.preventDefault();
     e.stopPropagation();
 
-    currentTargetEl = el;
+    ns.state.currentTargetEl = el;
     stopHoverMode();
-    showElementActionMenu(el);
+
+    const selector = getSelector(el);
+    const existingMod = (ns.state.experimentData.modifications || []).find(
+      (m) => m && m.groupValues && m.selector === selector,
+    );
+
+    if (existingMod) {
+      showReplaceConfirmModal(existingMod, el);
+    } else {
+      showElementActionMenu(el);
+    }
   }
 
   function startHoverMode() {
-    hoverModeActive = true;
+    ns.state.hoverModeActive = true;
     document.body.style.cursor = "crosshair";
     document.addEventListener("mousemove", onMouseMoveForHover, true);
     document.addEventListener("click", onClickForHover, true);
   }
 
   function stopHoverMode() {
-    hoverModeActive = false;
+    ns.state.hoverModeActive = false;
     document.body.style.cursor = "";
     document.removeEventListener("mousemove", onMouseMoveForHover, true);
     document.removeEventListener("click", onClickForHover, true);
@@ -309,7 +203,7 @@
     if (box) box.style.display = "none";
   }
 
-  // ---------- ELEMENT ACTION MENU (Edit Text / Edit HTML / Hide) ----------
+  // ---------- ELEMENT ACTION MENU ----------
   function showElementActionMenu(el) {
     const existing = document.getElementById("ig-action-menu");
     if (existing) existing.remove();
@@ -369,11 +263,149 @@
     }, 0);
   }
 
-  // ---------- MODIFICATION PANEL (Targeting selector, Description, per-group Replace) ----------
-  function openModificationPanel(el, action) {
-    currentTargetEl = el;
+  // ---------- MULTI-EXPERIMENT MERGE LOGIC ----------
+  function buildResolvedModifications(experiments) {
+    const claimedElements = new Set();
+    const resolved = [];
 
-    // agar ye image hai aur hover-swap wrapper ke andar hai, to poore wrapper ko target karo
+    experiments.forEach(({ experimentData, groupIndex }) => {
+      const group = experimentData.testGroups?.[groupIndex];
+      if (!group) return;
+      const groupName = group.name;
+
+      (experimentData.modifications || []).forEach((mod) => {
+        if (!mod || !mod.selector || !mod.groupValues) return;
+
+        let els;
+        try {
+          els = document.querySelectorAll(mod.selector);
+        } catch (e) {
+          return;
+        }
+        if (!els.length) return;
+
+        const unclaimedEls = Array.from(els).filter(
+          (el) => !claimedElements.has(el),
+        );
+        if (!unclaimedEls.length) return;
+
+        const gv = mod.groupValues[groupName];
+        if (!gv) return;
+
+        unclaimedEls.forEach((el) => claimedElements.add(el));
+
+        resolved.push({
+          type: mod.type,
+          hide: gv.hide,
+          value: gv.value,
+          experimentId: experimentData.experimentId,
+          targetEls: unclaimedEls,
+        });
+      });
+    });
+
+    return resolved;
+  }
+
+  function applyResolvedModifications(resolvedList) {
+    (resolvedList || []).forEach((item) => {
+      try {
+        item.targetEls.forEach((el) => {
+          if (item.hide) {
+            el.style.display = "none";
+          } else {
+            el.style.display = "";
+            if (item.type === "html") {
+              const temp = document.createElement("div");
+              temp.innerHTML = item.value;
+              const newEl = temp.firstElementChild;
+              if (newEl && el.parentNode) {
+                el.parentNode.replaceChild(newEl, el);
+              }
+            } else if (item.type === "image") {
+              el.removeAttribute("srcset");
+              el.removeAttribute("sizes");
+              el.src = item.value;
+            } else {
+              el.textContent = item.value;
+            }
+          }
+        });
+      } catch (err) {
+        console.error("Apply resolved modification error:", err);
+      }
+    });
+  }
+
+  ns.buildResolvedModifications = buildResolvedModifications;
+  ns.applyResolvedModifications = applyResolvedModifications;
+
+  function showReplaceConfirmModal(existingMod, el) {
+    const existing = document.getElementById("ig-replace-confirm-overlay");
+    if (existing) existing.remove();
+
+    const overlay = document.createElement("div");
+    overlay.id = "ig-replace-confirm-overlay";
+    overlay.style.cssText = `
+    position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 1000002;
+    display: flex; align-items: center; justify-content: center;
+    font-family: -apple-system, sans-serif;
+  `;
+
+    overlay.innerHTML = `
+    <div style="background:#fff; border-radius:10px; width:420px; max-width:90vw; padding:24px;">
+      <div style="font-size:15px; color:#111; margin-bottom:20px; line-height:1.5;">
+        You already have a replacement for this element. Would you like to edit the existing replacement?
+      </div>
+      <div style="display:flex; justify-content:flex-end; gap:10px;">
+        <button id="ig-replace-cancel" style="padding:8px 20px; border:1px solid #d1d5db; border-radius:6px; background:#fff; font-size:13px; cursor:pointer;">Cancel</button>
+        <button id="ig-replace-yes" style="padding:8px 20px; border:none; border-radius:6px; background:#2563EB; color:#fff; font-size:13px; font-weight:600; cursor:pointer;">Yes</button>
+      </div>
+    </div>
+  `;
+
+    document.body.appendChild(overlay);
+
+    document
+      .getElementById("ig-replace-cancel")
+      .addEventListener("click", () => {
+        overlay.remove();
+        ns.state.currentTargetEl = null;
+      });
+
+    document.getElementById("ig-replace-yes").addEventListener("click", () => {
+      overlay.remove();
+
+      // Existing modification ko pending mein load karo edit ke liye
+      ns.state.pendingModification = JSON.parse(JSON.stringify(existingMod));
+      ns.state.pendingModification._editingId = existingMod.id;
+      ns.state.currentTargetEl = el;
+      ns.state.editedFromReplacementsPanel = false;
+
+      const actionForType =
+        existingMod.type === "hide"
+          ? "hide"
+          : existingMod.type === "html"
+            ? "html"
+            : existingMod.type === "image"
+              ? "image"
+              : "text";
+
+      renderModificationPanel(actionForType);
+    });
+
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) {
+        overlay.remove();
+        ns.state.currentTargetEl = null;
+      }
+    });
+  }
+
+  // ---------- MODIFICATION PANEL ----------
+  function openModificationPanel(el, action) {
+    ns.state.currentTargetEl = el;
+
     let selector = getSelector(el);
     let initialSrc = el.src || "";
 
@@ -388,7 +420,7 @@
       }
     }
 
-    pendingModification = {
+    ns.state.pendingModification = {
       id: uid(),
       selector,
       description: "",
@@ -402,8 +434,8 @@
       groupValues: {},
     };
 
-    experimentData.testGroups.forEach((g) => {
-      pendingModification.groupValues[g.name] = {
+    ns.state.experimentData.testGroups.forEach((g) => {
+      ns.state.pendingModification.groupValues[g.name] = {
         value:
           action === "text"
             ? el.textContent.trim()
@@ -432,9 +464,9 @@
 
   function renderImagePanel() {
     const footer = document.getElementById("ig-toolbar-footer");
-    const mod = pendingModification;
+    const mod = ns.state.pendingModification;
 
-    const groupsHTML = experimentData.testGroups
+    const groupsHTML = ns.state.experimentData.testGroups
       .map((g) => {
         const gv = mod.groupValues[g.name];
         return `
@@ -530,15 +562,15 @@
     });
 
     document.getElementById("ig-mod-delete").addEventListener("click", () => {
-      pendingModification = null;
-      currentTargetEl = null;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
       showDefaultFooter();
     });
     document.getElementById("ig-mod-cancel").addEventListener("click", () => {
-      pendingModification = null;
-      currentTargetEl = null;
-      if (editedFromReplacementsPanel) {
-        editedFromReplacementsPanel = false;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
+      if (ns.state.editedFromReplacementsPanel) {
+        ns.state.editedFromReplacementsPanel = false;
         showDefaultFooter();
         showReplacementsPanel();
       } else {
@@ -627,7 +659,7 @@
     async function loadFiles(query) {
       grid.innerHTML = `<div style="grid-column: 1 / -1; text-align:center; color:#6B7280; padding:40px 0;">Loading images...</div>`;
       try {
-        const url = `${API_BASE}/preview/${previewId}/shopify-files?token=${encodeURIComponent(authToken)}${query ? `&search=${encodeURIComponent(query)}` : ""}`;
+        const url = `${ns.API_BASE}/preview/${ns.state.previewId}/shopify-files?token=${encodeURIComponent(ns.state.authToken)}${query ? `&search=${encodeURIComponent(query)}` : ""}`;
         const res = await fetch(url);
         if (!res.ok) throw new Error("Failed to load files");
         const data = await res.json();
@@ -677,12 +709,12 @@
     });
   }
 
-  // ---------- HIDE PANEL (footer mein, checkbox list) ----------
+  // ---------- HIDE PANEL ----------
   function renderHidePanel() {
     const footer = document.getElementById("ig-toolbar-footer");
-    const mod = pendingModification;
+    const mod = ns.state.pendingModification;
 
-    const groupsHTML = experimentData.testGroups
+    const groupsHTML = ns.state.experimentData.testGroups
       .map(
         (g) => `
         <label style="display:flex; align-items:center; gap:8px; font-size:14px; margin-bottom:12px; cursor:pointer;">
@@ -737,23 +769,22 @@
         const g = e.target.dataset.group;
         mod.groupValues[g].hide = e.target.checked;
       });
-      // initial state: sab hide=true by default for this panel
       const g = cb.dataset.group;
       mod.groupValues[g].hide = true;
     });
 
     document.getElementById("ig-mod-delete").addEventListener("click", () => {
-      pendingModification = null;
-      currentTargetEl = null;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
       showDefaultFooter();
     });
 
     document.getElementById("ig-mod-cancel").addEventListener("click", () => {
-      pendingModification = null;
-      currentTargetEl = null;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
 
-      if (editedFromReplacementsPanel) {
-        editedFromReplacementsPanel = false;
+      if (ns.state.editedFromReplacementsPanel) {
+        ns.state.editedFromReplacementsPanel = false;
         showDefaultFooter();
         showReplacementsPanel();
       } else {
@@ -765,12 +796,12 @@
     });
   }
 
-  // ---------- TEXT EDIT PANEL (footer mein, Find/Replace style) ----------
+  // ---------- TEXT EDIT PANEL ----------
   function renderTextPanel() {
     const footer = document.getElementById("ig-toolbar-footer");
-    const mod = pendingModification;
+    const mod = ns.state.pendingModification;
 
-    const groupsHTML = experimentData.testGroups
+    const groupsHTML = ns.state.experimentData.testGroups
       .map((g, i) => {
         const gv = mod.groupValues[g.name];
         return `
@@ -855,25 +886,25 @@
     });
 
     document.getElementById("ig-mod-delete").addEventListener("click", () => {
-      pendingModification = null;
-      currentTargetEl = null;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
 
-      if (editedFromReplacementsPanel) {
-        editedFromReplacementsPanel = false;
+      if (ns.state.editedFromReplacementsPanel) {
+        ns.state.editedFromReplacementsPanel = false;
         showDefaultFooter();
         updateModCountBadge();
-        updateSaveButtonState();
-        updateLastUpdatedText("just now");
+        ns.updateSaveButtonState();
+        ns.updateLastUpdatedText("just now");
       } else {
         showDefaultFooter();
       }
     });
     document.getElementById("ig-mod-cancel").addEventListener("click", () => {
-      pendingModification = null;
-      currentTargetEl = null;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
 
-      if (editedFromReplacementsPanel) {
-        editedFromReplacementsPanel = false;
+      if (ns.state.editedFromReplacementsPanel) {
+        ns.state.editedFromReplacementsPanel = false;
         showDefaultFooter();
         showReplacementsPanel();
       } else {
@@ -885,9 +916,9 @@
     });
   }
 
-  // ---------- EDIT HTML MODAL (center popup, not footer) ----------
+  // ---------- EDIT HTML MODAL ----------
   function renderHtmlModal() {
-    const mod = pendingModification;
+    const mod = ns.state.pendingModification;
     const existing = document.getElementById("ig-html-modal-overlay");
     if (existing) existing.remove();
 
@@ -902,7 +933,7 @@
   `;
 
     function buildModalHTML() {
-      const groupName = experimentData.testGroups[activeGroupIdx].name;
+      const groupName = ns.state.experimentData.testGroups[activeGroupIdx].name;
       const gv = mod.groupValues[groupName];
       return `
       <div style="background:#fff; border-radius:10px; width:600px; max-width:90vw; max-height:85vh; overflow-y:auto; padding:24px;">
@@ -916,7 +947,7 @@
         <div style="font-size:12px; color:#6B7280; margin-bottom:16px;">Elements: 1</div>
 
         <select id="ig-html-group-select" style="width:100%; padding:8px 10px; border:1px solid #d1d5db; border-radius:6px; font-size:13px; margin-bottom:16px;">
-          ${experimentData.testGroups
+          ${ns.state.experimentData.testGroups
             .map(
               (g, i) =>
                 `<option value="${i}" ${i === activeGroupIdx ? "selected" : ""}>${g.name}</option>`,
@@ -974,7 +1005,8 @@
       document
         .getElementById("ig-html-textarea")
         .addEventListener("input", (e) => {
-          const groupName = experimentData.testGroups[activeGroupIdx].name;
+          const groupName =
+            ns.state.experimentData.testGroups[activeGroupIdx].name;
           mod.groupValues[groupName].value = e.target.value;
           mod.groupValues[groupName].leaveAsIs = false;
         });
@@ -982,14 +1014,16 @@
       document
         .getElementById("ig-html-hide")
         .addEventListener("change", (e) => {
-          const groupName = experimentData.testGroups[activeGroupIdx].name;
+          const groupName =
+            ns.state.experimentData.testGroups[activeGroupIdx].name;
           mod.groupValues[groupName].hide = e.target.checked;
         });
 
       document
         .getElementById("ig-html-leave")
         .addEventListener("change", (e) => {
-          const groupName = experimentData.testGroups[activeGroupIdx].name;
+          const groupName =
+            ns.state.experimentData.testGroups[activeGroupIdx].name;
           mod.groupValues[groupName].leaveAsIs = e.target.checked;
         });
 
@@ -1010,11 +1044,11 @@
     function closeModal() {
       overlay.remove();
 
-      pendingModification = null;
-      currentTargetEl = null;
+      ns.state.pendingModification = null;
+      ns.state.currentTargetEl = null;
 
-      if (editedFromReplacementsPanel) {
-        editedFromReplacementsPanel = false;
+      if (ns.state.editedFromReplacementsPanel) {
+        ns.state.editedFromReplacementsPanel = false;
         showReplacementsPanel();
       }
     }
@@ -1024,32 +1058,34 @@
 
   // ---------- SHARED COMMIT LOGIC ----------
   function commitPendingModification() {
-    if (!experimentData.modifications) experimentData.modifications = [];
+    if (!ns.state.experimentData.modifications)
+      ns.state.experimentData.modifications = [];
 
+    const pendingModification = ns.state.pendingModification;
     const editingId = pendingModification._editingId;
     delete pendingModification._editingId;
 
     if (editingId) {
-      const idx = experimentData.modifications.findIndex(
+      const idx = ns.state.experimentData.modifications.findIndex(
         (m) => m.id === editingId,
       );
       if (idx !== -1) {
-        experimentData.modifications[idx] = pendingModification;
+        ns.state.experimentData.modifications[idx] = pendingModification;
       } else {
-        experimentData.modifications.push(pendingModification);
+        ns.state.experimentData.modifications.push(pendingModification);
       }
     } else {
-      experimentData.modifications.push(pendingModification);
+      ns.state.experimentData.modifications.push(pendingModification);
     }
 
     applyModificationToDOM(pendingModification);
-    pendingModification = null;
-    currentTargetEl = null;
-    updateSaveButtonState();
-    updateLastUpdatedText("just now");
+    ns.state.pendingModification = null;
+    ns.state.currentTargetEl = null;
+    ns.updateSaveButtonState();
+    ns.updateLastUpdatedText("just now");
 
-    const wasFromReplacements = editedFromReplacementsPanel;
-    editedFromReplacementsPanel = false;
+    const wasFromReplacements = ns.state.editedFromReplacementsPanel;
+    ns.state.editedFromReplacementsPanel = false;
 
     showDefaultFooter(true);
 
@@ -1058,14 +1094,14 @@
     }
   }
 
-  // ---------- APPLY MODIFICATION TO LIVE DOM (for current selected group) ----------
+  // ---------- APPLY MODIFICATION TO LIVE DOM ----------
   function applyModificationToDOM(mod) {
     if (!mod || !mod.selector) return;
     try {
       const els = document.querySelectorAll(mod.selector);
       if (!els.length) return;
       const currentGroupName =
-        experimentData.testGroups[selectedGroupIndex].name;
+        ns.state.experimentData.testGroups[ns.state.selectedGroupIndex].name;
       const gv = mod.groupValues[currentGroupName];
       if (!gv) return;
 
@@ -1096,62 +1132,9 @@
   }
 
   function applyAllModifications() {
-    (experimentData.modifications || [])
+    (ns.state.experimentData.modifications || [])
       .filter((mod) => mod && mod.selector)
       .forEach(applyModificationToDOM);
-  }
-
-  // ---------- SAVE (persist modifications to backend) ----------
-  async function saveModifications() {
-    if (saving) return;
-    saving = true;
-    const saveBtn = document.getElementById("ig-save-btn");
-    if (saveBtn) {
-      saveBtn.textContent = "Saving...";
-      saveBtn.disabled = true;
-    }
-
-    try {
-      const res = await fetch(
-        `${API_BASE}/preview/${previewId}/modifications`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            token: authToken,
-            modifications: (experimentData.modifications || []).filter(
-              (m) => m && m.groupValues,
-            ),
-          }),
-        },
-      );
-      if (!res.ok) throw new Error("Save failed");
-      showSuccessToast("Modifications saved");
-      if (saveBtn) {
-        saveBtn.textContent = "Save";
-        saveBtn.disabled = true;
-        saveBtn.style.background = "#94A3B8";
-        saveBtn.style.cursor = "not-allowed";
-      }
-    } catch (err) {
-      console.error("Save error:", err);
-      alert("Failed to save modifications");
-      if (saveBtn) {
-        saveBtn.textContent = "Save";
-        saveBtn.disabled = false;
-      }
-    } finally {
-      saving = false;
-    }
-  }
-
-  function updateSaveButtonState() {
-    const saveBtn = document.getElementById("ig-save-btn");
-    if (!saveBtn) return;
-    saveBtn.disabled = false;
-    saveBtn.style.background = "#fff";
-    saveBtn.style.color = "#2563EB";
-    saveBtn.style.cursor = "pointer";
   }
 
   // ---------- ICONS ----------
@@ -1221,7 +1204,8 @@
 
   function getModSummary(mod) {
     if (!mod || !mod.groupValues) return { label: "Text", desc: "No data" };
-    const currentGroupName = experimentData.testGroups[selectedGroupIndex].name;
+    const currentGroupName =
+      ns.state.experimentData.testGroups[ns.state.selectedGroupIndex].name;
     const gv = mod.groupValues[currentGroupName];
     if (!gv) return { label: "Text", desc: "No data" };
 
@@ -1258,7 +1242,7 @@
     font-family: -apple-system, sans-serif; display: flex; flex-direction: column;
   `;
 
-    const mods = (experimentData.modifications || []).filter(
+    const mods = (ns.state.experimentData.modifications || []).filter(
       (m) => m && m.groupValues,
     );
 
@@ -1288,7 +1272,6 @@
 
     document.body.appendChild(overlay);
 
-    // Click andar ke elements pe bubble na kare
     overlay.addEventListener("click", (e) => {
       e.stopPropagation();
     });
@@ -1303,14 +1286,14 @@
         e.preventDefault();
         e.stopPropagation();
         const idx = parseInt(e.currentTarget.dataset.index, 10);
-        const mod = experimentData.modifications[idx];
+        const mod = ns.state.experimentData.modifications[idx];
         if (!mod) return;
 
         overlay.remove();
 
-        pendingModification = JSON.parse(JSON.stringify(mod));
-        pendingModification._editingId = mod.id;
-        editedFromReplacementsPanel = true;
+        ns.state.pendingModification = JSON.parse(JSON.stringify(mod));
+        ns.state.pendingModification._editingId = mod.id;
+        ns.state.editedFromReplacementsPanel = true;
 
         const actionForType =
           mod.type === "hide"
@@ -1331,15 +1314,16 @@
         e.stopPropagation();
         const idx = parseInt(e.currentTarget.dataset.index, 10);
 
-        experimentData.modifications.splice(idx, 1);
+        ns.state.experimentData.modifications.splice(idx, 1);
         updateModCountBadge();
-        updateSaveButtonState();
-        updateLastUpdatedText("just now");
+        ns.updateSaveButtonState();
+        ns.updateLastUpdatedText("just now");
 
         overlay.remove();
         if (
-          experimentData.modifications.filter((m) => m && m.groupValues)
-            .length > 0
+          ns.state.experimentData.modifications.filter(
+            (m) => m && m.groupValues,
+          ).length > 0
         ) {
           showReplacementsPanel();
         }
@@ -1360,13 +1344,8 @@
     }, 0);
   }
 
-  function updateLastUpdatedText(text) {
-    const el = document.getElementById("ig-last-updated-text");
-    if (el) el.textContent = `Last updated: ${text}`;
-  }
-
   function updateModCountBadge() {
-    const count = (experimentData.modifications || []).filter(
+    const count = (ns.state.experimentData.modifications || []).filter(
       (m) => m && m.groupValues,
     ).length;
     const linkArea = document.getElementById("ig-mod-count-area");
@@ -1401,14 +1380,14 @@
     bar.innerHTML = `
       <div style="background:#2563EB; color:#fff; padding:14px 20px; display:flex; align-items:center; justify-content:space-between;">
         <div style="display:flex; align-items:center; gap:8px; font-size:14px;">
-          Editing - <strong>${experimentData.name}</strong>
+          Editing - <strong>${ns.state.experimentData.name}</strong>
         </div>
         <div style="display:flex; align-items:center; gap:16px;">
           <span style="font-size:14px;">Highlight Modifications</span>
           <label style="position:relative; display:inline-block; width:36px; height:20px;">
-            <input type="checkbox" id="ig-highlight-toggle" ${highlightOn ? "checked" : ""} style="opacity:0; width:0; height:0;">
-            <span id="ig-toggle-slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:${highlightOn ? "#F59E0B" : "#94A3B8"}; border-radius:20px; transition:.3s;"></span>
-            <span style="position:absolute; height:16px; width:16px; left:${highlightOn ? "18px" : "2px"}; bottom:2px; background:#fff; border-radius:50%; transition:.3s;"></span>
+            <input type="checkbox" id="ig-highlight-toggle" ${ns.state.highlightOn ? "checked" : ""} style="opacity:0; width:0; height:0;">
+            <span id="ig-toggle-slider" style="position:absolute; cursor:pointer; top:0; left:0; right:0; bottom:0; background:${ns.state.highlightOn ? "#F59E0B" : "#94A3B8"}; border-radius:20px; transition:.3s;"></span>
+            <span style="position:absolute; height:16px; width:16px; left:${ns.state.highlightOn ? "18px" : "2px"}; bottom:2px; background:#fff; border-radius:50%; transition:.3s;"></span>
           </label>
           <button id="ig-exit-btn" style="background:none; border:none; color:#fff; font-size:14px; cursor:pointer;">Exit Editor</button>
         </div>
@@ -1416,10 +1395,10 @@
 
       <div style="background:#3B6FE0; color:#fff; padding:10px 20px; display:flex; align-items:center; justify-content:space-between; position:relative;">
         <div id="ig-group-selector" style="cursor:pointer; display:flex; align-items:center; gap:6px; font-size:14px; position:relative;">
-          <span id="ig-current-group">${experimentData.testGroups[selectedGroupIndex]?.name}</span>
+          <span id="ig-current-group">${ns.state.experimentData.testGroups[ns.state.selectedGroupIndex]?.name}</span>
           <span>▾</span>
           <div id="ig-group-dropdown" style="display:none; position:absolute; top:28px; left:0; background:#fff; color:#111; border-radius:6px; box-shadow:0 4px 12px rgba(0,0,0,0.2); min-width:160px; overflow:hidden;">
-            ${experimentData.testGroups
+            ${ns.state.experimentData.testGroups
               .map(
                 (g, i) =>
                   `<div class="ig-group-option" data-index="${i}" style="padding:10px 14px; cursor:pointer; font-size:14px;">${g.name}</div>`,
@@ -1429,7 +1408,7 @@
         </div>
         <div style="font-size:13px; display:flex; align-items:center; gap:16px;">
           <span id="ig-mod-count-area"></span>
-          <span id="ig-last-updated-text">Last updated: ${timeAgo(experimentData.updatedAt)}</span>
+          <span id="ig-last-updated-text">Last updated: ${timeAgo(ns.state.experimentData.updatedAt)}</span>
           <button id="ig-save-btn" style="background:#94A3B8; color:#fff; border:none; padding:6px 16px; border-radius:6px; font-size:13px; cursor:not-allowed;" disabled>Save</button>
         </div>
       </div>
@@ -1442,24 +1421,52 @@
     document.body.prepend(bar);
     document.body.style.marginTop = bar.offsetHeight + "px";
 
-    document.getElementById("ig-exit-btn").addEventListener("click", () => {
-      sessionStorage.removeItem(`ig-token-${previewId}`);
-      const url = new URL(window.location.href);
-      [
-        "ig-preview",
-        "ig-builder-mode",
-        "ig-builder-entity",
-        "ig-auth-token",
-      ].forEach((k) => url.searchParams.delete(k));
-      window.location.href = url.toString();
-    });
+    document
+      .getElementById("ig-exit-btn")
+      .addEventListener("click", async () => {
+        try {
+          await fetch(
+            `${ns.API_BASE}/preview/${ns.state.previewId}/toolbar-exit`,
+            {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                token: ns.state.authToken,
+                toolbarExited: true,
+              }),
+            },
+          );
+        } catch (e) {
+          console.error(e);
+        }
+
+        sessionStorage.removeItem(`ig-token-${ns.state.previewId}`);
+        ns.markToolbarExited();
+        ns.clearBuilderSession();
+        ns.clearCache();
+
+        const url = new URL(window.location.href);
+
+        [
+          "ig-preview",
+          "ig-builder-mode",
+          "ig-builder-entity",
+          "ig-auth-token",
+        ].forEach((k) => url.searchParams.delete(k));
+
+        window.location.href = url.toString();
+      });
 
     document
       .getElementById("ig-highlight-toggle")
       .addEventListener("change", (e) => {
-        highlightOn = e.target.checked;
-        document.getElementById("ig-toggle-slider").style.background =
-          highlightOn ? "#F59E0B" : "#94A3B8";
+        ns.state.highlightOn = e.target.checked;
+        document.getElementById("ig-toggle-slider").style.background = ns.state
+          .highlightOn
+          ? "#F59E0B"
+          : "#94A3B8";
       });
 
     document
@@ -1474,9 +1481,9 @@
     document.querySelectorAll(".ig-group-option").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
-        selectedGroupIndex = parseInt(e.target.dataset.index, 10);
+        ns.state.selectedGroupIndex = parseInt(e.target.dataset.index, 10);
         document.getElementById("ig-current-group").textContent =
-          experimentData.testGroups[selectedGroupIndex].name;
+          ns.state.experimentData.testGroups[ns.state.selectedGroupIndex].name;
         document.getElementById("ig-group-dropdown").style.display = "none";
         applyAllModifications();
       });
@@ -1489,135 +1496,17 @@
 
     document
       .getElementById("ig-save-btn")
-      .addEventListener("click", saveModifications);
+      .addEventListener("click", ns.saveModifications);
 
     bindDefaultFooterEvents();
     updateModCountBadge();
   }
 
-  function pickWeightedGroup(testGroups) {
-    const total = testGroups.reduce(
-      (sum, g) => sum + (Number(g.percent) || 0),
-      0,
-    );
-    if (total <= 0) return testGroups[0];
-
-    let rand = Math.random() * total;
-    for (const g of testGroups) {
-      rand -= Number(g.percent) || 0;
-      if (rand <= 0) return g;
-    }
-    return testGroups[testGroups.length - 1];
-  }
-
-  function getAssignedGroup(experimentId, testGroups) {
-    const key = `ig-assigned-group-${experimentId}`;
-    const storedId = localStorage.getItem(key);
-
-    if (storedId) {
-      const found = testGroups.find((g) => g.id === storedId);
-      if (found) return found;
-    }
-
-    const picked = pickWeightedGroup(testGroups);
-    localStorage.setItem(key, picked.id);
-    return picked;
-  }
-
-  async function resolveActivePreview() {
-    if (previewId) return true;
-
-    const shop = window.location.hostname;
-
-    try {
-      const res = await fetch(
-        `${API_BASE}/preview/active?shop=${encodeURIComponent(shop)}`,
-      );
-      if (!res.ok) return false;
-
-      const data = await res.json();
-      if (!data || !data.previewId || !data.token) return false;
-
-      previewId = data.previewId;
-      authToken = data.token;
-      sessionStorage.setItem(`ig-token-${previewId}`, authToken);
-      return true;
-    } catch (err) {
-      console.error("IG Preview: active experiment lookup failed", err);
-      return false;
-    }
-  }
-
-  async function init() {
-    const hasPreview = await resolveActivePreview();
-    if (!hasPreview || !previewId) {
-      revealPreviewPage();
-      return;
-    }
-
-    const cachedData = loadCachedPreviewData();
-    if (cachedData && applyPreviewData(cachedData, true)) {
-      revealPreviewPage();
-    }
-
-    if (!authToken) {
-      console.error("IG Preview: No auth token available");
-      revealPreviewPage();
-      return;
-    }
-
-    try {
-      const res = await fetch(
-        `${API_BASE}/preview/${previewId}?token=${encodeURIComponent(authToken)}`,
-      );
-      if (!res.ok) throw new Error("Failed to load preview data");
-      const data = await res.json();
-      experimentData = data.experiment || data;
-      const newSignature = JSON.stringify(
-        (experimentData.modifications || []).filter((m) => m && m.groupValues && m.selector),
-      );
-      const cacheKey = getPreviewCacheKey();
-      const cachedRaw = cacheKey ? localStorage.getItem(cacheKey) : null;
-      const cachedData = cachedRaw ? JSON.parse(cachedRaw) : null;
-      const cachedSignature = cachedData
-        ? JSON.stringify((cachedData.modifications || []).filter((m) => m && m.groupValues && m.selector))
-        : null;
-
-      savePreviewCache(experimentData);
-      if (cachedSignature === newSignature) {
-        revealPreviewPage();
-        if (experimentData.status === "active") return;
-      }
-
-      if (applyPreviewData(experimentData, true)) {
-        revealPreviewPage();
-        if (experimentData.status === "active") return;
-      }
-
-      if (experimentData.status !== "pending") {
-        console.log(
-          `IG Preview: experiment status is "${experimentData.status}", toolbar hidden`,
-        );
-        return;
-      }
-
-      createToolbar();
-      applyAllModifications();
-      showSuccessToast(`Loaded '${experimentData.name}'`);
-      revealPreviewPage();
-
-      const cleanUrl = `${window.location.pathname}?ig-preview=${previewId}&ig-builder-entity=experiment`;
-      window.history.replaceState(null, "", cleanUrl);
-    } catch (err) {
-      console.error("IG Preview error:", err);
-    } finally {
-      revealPreviewPage();
-    }
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  ns.getSelector = getSelector;
+  ns.showSuccessToast = showSuccessToast;
+  ns.applyModificationToDOM = applyModificationToDOM;
+  ns.applyAllModifications = applyAllModifications;
+  ns.createToolbar = createToolbar;
+  ns.showReplacementsPanel = showReplacementsPanel;
+  ns.updateModCountBadge = updateModCountBadge;
 })();
