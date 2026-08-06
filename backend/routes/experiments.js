@@ -172,4 +172,51 @@ router.post("/experiments/:id/builder-token", async (req, res) => {
   }
 });
 
+router.delete("/experiments/:id/modifications/:modId", async (req, res) => {
+  try {
+    const { id, modId } = req.params;
+    const experiment = await Experiment.findOne({ experimentId: id });
+    if (!experiment) {
+      return res.status(404).json({ error: "Experiment not found" });
+    }
+
+    experiment.modifications = (experiment.modifications || []).filter(
+      (m) => m.id !== modId
+    );
+    experiment.markModified("modifications");
+    await experiment.save();
+
+    return res.json({ success: true, modifications: experiment.modifications });
+  } catch (err) {
+    console.error("Delete modification error:", err.message);
+    return res.status(500).json({ error: "Failed to delete modification" });
+  }
+});
+
+router.put("/experiments/:id/modifications/:modId", async (req, res) => {
+  try {
+    const { id, modId } = req.params;
+    const updatedMod = req.body;
+
+    const experiment = await Experiment.findOne({ experimentId: id });
+    if (!experiment) {
+      return res.status(404).json({ error: "Experiment not found" });
+    }
+
+    const idx = (experiment.modifications || []).findIndex((m) => m.id === modId);
+    if (idx === -1) {
+      return res.status(404).json({ error: "Modification not found" });
+    }
+
+    experiment.modifications[idx] = { ...updatedMod, id: modId };
+    experiment.markModified("modifications");
+    await experiment.save();
+
+    return res.json({ modification: experiment.modifications[idx] });
+  } catch (err) {
+    console.error("Update modification error:", err.message);
+    return res.status(500).json({ error: "Failed to update modification" });
+  }
+});
+
 export default router;

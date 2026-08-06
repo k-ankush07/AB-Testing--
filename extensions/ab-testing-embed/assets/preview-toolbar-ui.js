@@ -298,6 +298,7 @@
           type: mod.type,
           hide: gv.hide,
           value: gv.value,
+          leaveAsIs: gv.leaveAsIs,
           experimentId: experimentData.experimentId,
           targetEls: unclaimedEls,
         });
@@ -310,6 +311,8 @@
   function applyResolvedModifications(resolvedList) {
     (resolvedList || []).forEach((item) => {
       try {
+        if (item.leaveAsIs) return;
+
         item.targetEls.forEach((el) => {
           if (item.hide) {
             el.style.display = "none";
@@ -1104,6 +1107,8 @@
         ns.state.experimentData.testGroups[ns.state.selectedGroupIndex].name;
       const gv = mod.groupValues[currentGroupName];
       if (!gv) return;
+
+      if (gv.leaveAsIs) return;
 
       els.forEach((el) => {
         if (gv.hide) {

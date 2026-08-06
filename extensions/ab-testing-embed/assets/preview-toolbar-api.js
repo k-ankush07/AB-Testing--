@@ -290,9 +290,7 @@
           }
 
           ns.createToolbar();
-          if (!ns.isBuilderSession()) {
-            ns.applyAllModifications();
-          }
+          ns.applyAllModifications();
           ns.showSuccessToast(`Loaded '${ns.state.experimentData.name}'`);
           ns.revealPreviewPage();
 

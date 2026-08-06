@@ -79,11 +79,8 @@ export default function Experiment() {
     const selectedTab = PARAM_TO_TAB[tab] ?? 0;
     const barRef = useRef(null);
 
-    // 🔑 EDIT MODE: existing experiment data load karo
     useEffect(() => {
         if (!isEditMode) return;
-
-        // Pehle state se try karo (Dashboard se navigate hua tha toh already mil sakta hai)
         const experimentFromState = location.state?.experiment;
 
         if (experimentFromState) {
@@ -92,13 +89,13 @@ export default function Experiment() {
             return;
         }
 
-        // State mein nahi mila (jaise page refresh hua), API se fetch karo
         const loadExperiment = async () => {
             setLoadingExperiment(true);
             try {
                 const data = await apiGet(`/experiments/${experimentId}`);
                 setExperimentName(data.experiment.name);
                 setGroups(data.experiment.testGroups);
+                console.log(data.experiment);
             } catch (err) {
                 console.error("Failed to load experiment:", err);
                 alert("Failed to load experiment data");
@@ -283,6 +280,7 @@ export default function Experiment() {
                 />)}
                 {tab === "mods" && (<Mods experimentId={experimentId}
                     shopDomain={shop?.shop?.myshopifyDomain || shop?.myshopifyDomain}
+                    testGroups={groups}
                 />)}
             </BlockStack>
         </Page>
