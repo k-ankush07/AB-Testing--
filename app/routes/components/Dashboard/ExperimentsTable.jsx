@@ -40,11 +40,26 @@ export default function ExperimentsTable({
   onStatusChange,
 }) {
   const [openMenuId, setOpenMenuId] = useState(null);
+  const [loadingAction, setLoadingAction] = useState({});
+
+  const handleStatusChange = async (experimentId, newStatus) => {
+    setLoadingAction((prev) => ({ ...prev, [experimentId]: newStatus }));
+    try {
+      await onStatusChange(experimentId, newStatus);
+    } finally {
+      setLoadingAction((prev) => {
+        const next = { ...prev };
+        delete next[experimentId];
+        return next;
+      });
+    }
+  };
 
   const rowMarkup = experiments.map((exp, index) => {
     const isActive = exp.status === "active";
     const isPending = exp.status === "pending";
     const isEnded = exp.status === "ended";
+    const currentLoadingAction = loadingAction[exp.experimentId];
 
     return (
       <IndexTable.Row id={exp.experimentId} key={exp.experimentId} position={index}>
@@ -99,21 +114,38 @@ export default function ExperimentsTable({
           <InlineStack gap="200" blockAlign="center" align="end">
             {isActive && (
               <>
-                <Button variant="plain" onClick={() => onStatusChange(exp.experimentId, "ended")}>
+                <Button
+                  variant="plain"
+                  loading={currentLoadingAction === "ended"}
+                  disabled={!!currentLoadingAction}
+                  onClick={() => handleStatusChange(exp.experimentId, "ended")}
+                >
                   End
                 </Button>
-                <Button onClick={() => onStatusChange(exp.experimentId, "paused")}>
+                <Button
+                  loading={currentLoadingAction === "paused"}
+                  disabled={!!currentLoadingAction}
+                  onClick={() => handleStatusChange(exp.experimentId, "paused")}
+                >
                   Pause
                 </Button>
               </>
             )}
             {isPending && (
-              <Button onClick={() => onStatusChange(exp.experimentId, "active")}>
+              <Button
+                loading={currentLoadingAction === "active"}
+                disabled={!!currentLoadingAction}
+                onClick={() => handleStatusChange(exp.experimentId, "active")}
+              >
                 Start
               </Button>
             )}
             {exp.status === "paused" && (
-              <Button onClick={() => onStatusChange(exp.experimentId, "active")}>
+              <Button
+                loading={currentLoadingAction === "active"}
+                disabled={!!currentLoadingAction}
+                onClick={() => handleStatusChange(exp.experimentId, "active")}
+              >
                 Resume
               </Button>
             )}

@@ -23,7 +23,13 @@ const TYPE_LABELS = {
     image: "Image",
 };
 
-export default function Modifications({ experimentId, shopDomain, testGroups = [] }) {
+export default function Modifications({
+    experimentId,
+    shopDomain,
+    testGroups = [],
+    experimentName,
+    onExperimentCreated,
+}) {
     const [loadingBuilder, setLoadingBuilder] = useState(false);
     const [loadingMods, setLoadingMods] = useState(true);
     const [modifications, setModifications] = useState([]);
@@ -60,11 +66,47 @@ export default function Modifications({ experimentId, shopDomain, testGroups = [
     const openVisualBuilder = async () => {
         setLoadingBuilder(true);
         try {
-            const data = await apiPost(`/experiments/${experimentId}/builder-token`, {
-                shop: shopDomain,
-            });
-            const previewUrl = `https://${shopDomain}/?ig-preview=${experimentId}&ig-builder-entity=experiment`;
+            let currentExperimentId = experimentId;
+
+            if (!currentExperimentId) {
+                const totalPercent = (testGroups || []).reduce(
+                    (sum, g) => sum + g.percent,
+                    0
+                );
+                if (totalPercent !== 100) {
+                    alert(
+                        "Test group percentages must add up to 100% before opening the editor"
+                    );
+                    setLoadingBuilder(false);
+                    return;
+                }
+
+                const createData = await apiPost("/experiments", {
+                    shop: shopDomain,
+                    type: "content/onsiteEdits",
+                    name: experimentName,
+                    testGroups: (testGroups || []).map((g) => ({
+                        id: g.id,
+                        name: g.name,
+                        percent: g.percent,
+                    })),
+                });
+
+                currentExperimentId = createData.experiment.experimentId;
+
+                if (onExperimentCreated) {
+                    onExperimentCreated(currentExperimentId);
+                }
+            }
+
+            const data = await apiPost(
+                `/experiments/${currentExperimentId}/builder-token`,
+                { shop: shopDomain }
+            );
+
+            const previewUrl = `https://${shopDomain}/?ig-preview=${currentExperimentId}&ig-builder-entity=experiment`;
             const fullUrl = `${previewUrl}#ig-auth-token=${data.token}`;
+
             window.open(fullUrl, "_blank");
         } catch (err) {
             console.error("Failed to open visual builder:", err);
@@ -140,8 +182,8 @@ export default function Modifications({ experimentId, shopDomain, testGroups = [
         testGroups.length > 0
             ? testGroups.map((g) => g.name)
             : draft
-            ? Object.keys(draft.groupValues || {})
-            : [];
+                ? Object.keys(draft.groupValues || {})
+                : [];
 
     if (loadingMods) {
         return (
@@ -249,8 +291,8 @@ export default function Modifications({ experimentId, shopDomain, testGroups = [
                                                                 {gv.hide
                                                                     ? "Remove"
                                                                     : gv.leaveAsIs
-                                                                    ? "Leave as is"
-                                                                    : (gv.value || "").slice(0, 40)}
+                                                                        ? "Leave as is"
+                                                                        : (gv.value || "").slice(0, 40)}
                                                             </Text>
                                                         ))}
                                                     </BlockStack>

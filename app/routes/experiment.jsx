@@ -5,7 +5,7 @@ import { requireShopData } from "./components/shop.server";
 import { useLoaderData, useLocation, useSearchParams, Link, useNavigate } from "react-router";
 import { apiRequest, apiGet, apiPut } from "./components/utils/api";
 
-import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Spinner  } from "@shopify/polaris";
+import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Spinner } from "@shopify/polaris";
 
 const TAB_TO_PARAM = {
     0: "testGroups",
@@ -278,10 +278,22 @@ export default function Experiment() {
                     removeGroup={removeGroup}
                     renameGroup={renameGroup}
                 />)}
-                {tab === "mods" && (<Mods experimentId={experimentId}
-                    shopDomain={shop?.shop?.myshopifyDomain || shop?.myshopifyDomain}
-                    testGroups={groups}
-                />)}
+                {tab === "mods" && (
+                    <Mods
+                        experimentId={experimentId}
+                        shopDomain={shop?.shop?.myshopifyDomain || shop?.myshopifyDomain}
+                        testGroups={groups}
+                        experimentName={experimentName}
+                        onExperimentCreated={(newId) => {
+                            setSearchParams((prev) => {
+                                const next = new URLSearchParams(prev);
+                                next.set("id", newId);
+                                next.set("action", "edit");
+                                return next;
+                            });
+                        }}
+                    />
+                )}
             </BlockStack>
         </Page>
     );
