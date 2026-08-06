@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.post("/experiments", async (req, res) => {
   try {
-    const { shop, type, name, testGroups } = req.body;
+    const { shop, type, name, testGroups, countries } = req.body;
 
     if (!shop || !type || !testGroups || testGroups.length < 2) {
       return res.status(400).json({
@@ -29,6 +29,7 @@ router.post("/experiments", async (req, res) => {
       name,
       status: "pending",
       testGroups,
+      countries: countries || [],
     });
 
     return res.status(201).json({ experiment });
@@ -78,8 +79,6 @@ router.patch("/experiments/:id/status", async (req, res) => {
     }
 
     const updateData = { status };
-    // startedAt sirf PEHLI baar set karo — dobara active karne pe overwrite mat karo,
-    // warna merge order (first-wins by startedAt) galat ho jaata hai
     if (status === "active" && !experiment.startedAt) {
       updateData.startedAt = new Date();
     }
@@ -117,7 +116,7 @@ router.get("/experiments/:id", async (req, res) => {
 router.put("/experiments/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, testGroups } = req.body;
+    const { name, testGroups, countries } = req.body;
 
     if (!testGroups || testGroups.length < 2 || testGroups.length > 5) {
       return res.status(400).json({ error: "Between 2 and 5 test groups required" });
@@ -130,7 +129,7 @@ router.put("/experiments/:id", async (req, res) => {
 
     const updated = await Experiment.findOneAndUpdate(
       { experimentId: id },
-      { name, testGroups },
+      { name, testGroups, countries },
       { new: true }
     );
 

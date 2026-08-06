@@ -24,6 +24,7 @@
     "node": ">=20.19 <22 || >=22.12"
   },
   "dependencies": {
+    "@codemirror/lang-html": "6.4.9",
     "@prisma/client": "^6.16.3",
     "@react-router/dev": "^7.12.0",
     "@react-router/fs-routes": "^7.12.0",
@@ -33,6 +34,7 @@
     "@shopify/polaris": "^13.9.5",
     "@shopify/shopify-app-react-router": "^1.2.1",
     "@shopify/shopify-app-session-storage-prisma": "^9.0.0",
+    "codemirror": "6.0.1",
     "isbot": "^5.1.31",
     "prisma": "^6.16.3",
     "react": "^18.3.1",

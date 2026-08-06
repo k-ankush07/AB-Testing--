@@ -11,8 +11,18 @@
 })();
 </script>
 
+<link rel="stylesheet" href="{{ 'preview-toolbar.css' | asset_url }}">
+
 <link rel="preconnect" href="http://localhost:8001">
 <script src="{{ 'preview-toolbar.js' | asset_url }}"></script>
+
+<script>
+  window.__igVisitorCountry = "{{ localization.country.iso_code }}";
+</script>
+
+<script>
+  window.__igCM6BundleUrl = "{{ 'cm6-bundle.js' | asset_url }}";
+</script>
 
 {% schema %}
 {

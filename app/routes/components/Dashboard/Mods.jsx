@@ -23,6 +23,30 @@ const TYPE_LABELS = {
     image: "Image",
 };
 
+function isMultiImageMod(mod) {
+    if (!mod) return false;
+    if (mod.isMultiImage) return true;
+    if (mod.groupValues) {
+        const first = Object.values(mod.groupValues)[0];
+        if (first && Array.isArray(first.images)) return true;
+    }
+    return false;
+}
+
+function getModPreviewLine(gName, gv, isMulti) {
+    if (isMulti) {
+        const count = (gv?.images || []).length;
+        const hiddenCount = (gv?.images || []).filter((i) => i.hide).length;
+        if (count === 0) return `${gName}: No images`;
+        if (hiddenCount === count) return `${gName}: All hidden`;
+        return `${gName}: ${count} image${count > 1 ? "s" : ""}`;
+    }
+    if (!gv) return `${gName}: —`;
+    return `${gName}: ${
+        gv.hide ? "Remove" : gv.leaveAsIs ? "Leave as is" : (gv.value || "").slice(0, 40)
+    }`;
+}
+
 export default function Modifications({
     experimentId,
     shopDomain,
@@ -134,6 +158,23 @@ export default function Modifications({
         }));
     };
 
+    const updateDraftGroupImageField = (groupName, index, field, value) => {
+        setDraft((prev) => {
+            const images = [...(prev.groupValues[groupName]?.images || [])];
+            images[index] = { ...images[index], [field]: value };
+            return {
+                ...prev,
+                groupValues: {
+                    ...prev.groupValues,
+                    [groupName]: {
+                        ...prev.groupValues[groupName],
+                        images,
+                    },
+                },
+            };
+        });
+    };
+
     const deleteMod = async (index, e) => {
         e.stopPropagation();
         const mod = modifications[index];
@@ -162,11 +203,16 @@ export default function Modifications({
         if (!draft) return;
         setSavingMod(true);
         try {
+
+            const payload = {
+                ...draft,
+                isMultiImage: isMultiImageMod(draft),
+            };
             const updated = await apiPut(
                 `/experiments/${experimentId}/modifications/${draft.id}`,
-                draft
+                payload
             );
-            const savedMod = updated.modification || draft;
+            const savedMod = updated.modification || payload;
             setModifications((prev) =>
                 prev.map((m) => (m.id === savedMod.id ? savedMod : m))
             );
@@ -196,6 +242,8 @@ export default function Modifications({
             </Card>
         );
     }
+
+    const draftIsMultiImage = isMultiImageMod(draft);
 
     return (
         <Card>
@@ -253,53 +301,52 @@ export default function Modifications({
                         <InlineStack gap="400" align="start" blockAlign="start" wrap={false}>
                             <Box minWidth="320px" maxWidth="360px" width="100%">
                                 <BlockStack gap="200">
-                                    {modifications.map((mod, i) => (
-                                        <Box
-                                            key={mod.id || i}
-                                            padding="300"
-                                            borderWidth="025"
-                                            borderColor={selectedIndex === i ? "border-emphasis" : "border"}
-                                            borderRadius="200"
-                                            background={selectedIndex === i ? "bg-surface-selected" : "bg-surface"}
-                                        >
-                                            <div
-                                                style={{ cursor: "pointer" }}
-                                                onClick={() => selectMod(i)}
+                                    {modifications.map((mod, i) => {
+                                        const modIsMulti = isMultiImageMod(mod);
+                                        return (
+                                            <Box
+                                                key={mod.id || i}
+                                                padding="300"
+                                                borderWidth="025"
+                                                borderColor={selectedIndex === i ? "border-emphasis" : "border"}
+                                                borderRadius="200"
+                                                background={selectedIndex === i ? "bg-surface-selected" : "bg-surface"}
                                             >
-                                                <InlineStack align="space-between" blockAlign="center">
-                                                    <Text as="span" fontWeight="semibold">
-                                                        {i + 1}. {TYPE_LABELS[mod.type] || "Edit"}
-                                                    </Text>
-                                                    <Button
-                                                        icon={DeleteIcon}
-                                                        variant="plain"
-                                                        tone="critical"
-                                                        loading={deletingId === mod.id}
-                                                        onClick={(e) => deleteMod(i, e)}
-                                                        accessibilityLabel="Delete edit"
-                                                    />
-                                                </InlineStack>
-
-                                                {selectedIndex === i && (
-                                                    <BlockStack gap="050">
-                                                        <Text as="span" tone="subdued" variant="bodySm">
-                                                            Selector: {mod.selector}
+                                                <div
+                                                    style={{ cursor: "pointer" }}
+                                                    onClick={() => selectMod(i)}
+                                                >
+                                                    <InlineStack align="space-between" blockAlign="center">
+                                                        <Text as="span" fontWeight="semibold">
+                                                            {i + 1}. {TYPE_LABELS[mod.type] || "Edit"}
+                                                            {modIsMulti ? " (multi)" : ""}
                                                         </Text>
-                                                        {Object.entries(mod.groupValues || {}).map(([gName, gv]) => (
-                                                            <Text as="span" tone="subdued" variant="bodySm" key={gName}>
-                                                                {gName}:{" "}
-                                                                {gv.hide
-                                                                    ? "Remove"
-                                                                    : gv.leaveAsIs
-                                                                        ? "Leave as is"
-                                                                        : (gv.value || "").slice(0, 40)}
+                                                        <Button
+                                                            icon={DeleteIcon}
+                                                            variant="plain"
+                                                            tone="critical"
+                                                            loading={deletingId === mod.id}
+                                                            onClick={(e) => deleteMod(i, e)}
+                                                            accessibilityLabel="Delete edit"
+                                                        />
+                                                    </InlineStack>
+
+                                                    {selectedIndex === i && (
+                                                        <BlockStack gap="050">
+                                                            <Text as="span" tone="subdued" variant="bodySm">
+                                                                Selector: {mod.selector}
                                                             </Text>
-                                                        ))}
-                                                    </BlockStack>
-                                                )}
-                                            </div>
-                                        </Box>
-                                    ))}
+                                                            {Object.entries(mod.groupValues || {}).map(([gName, gv]) => (
+                                                                <Text as="span" tone="subdued" variant="bodySm" key={gName}>
+                                                                    {getModPreviewLine(gName, gv, modIsMulti)}
+                                                                </Text>
+                                                            ))}
+                                                        </BlockStack>
+                                                    )}
+                                                </div>
+                                            </Box>
+                                        );
+                                    })}
                                 </BlockStack>
                             </Box>
 
@@ -325,47 +372,123 @@ export default function Modifications({
                                                 Replace
                                             </Text>
 
-                                            {groupNames.map((gName) => {
-                                                const gv =
-                                                    draft.groupValues[gName] || {
-                                                        value: "",
-                                                        hide: false,
-                                                        leaveAsIs: false,
-                                                    };
-                                                return (
-                                                    <BlockStack gap="100" key={gName}>
-                                                        <Text as="span" fontWeight="medium" variant="bodySm">
-                                                            {gName}
-                                                        </Text>
-                                                        <TextField
-                                                            labelHidden
-                                                            label={gName}
-                                                            value={gv.value || ""}
-                                                            multiline={draft.type === "html"}
-                                                            disabled={gv.hide}
-                                                            onChange={(v) =>
-                                                                updateDraftGroupField(gName, "value", v)
-                                                            }
-                                                        />
-                                                        <InlineStack gap="400">
-                                                            <Checkbox
-                                                                label="Hide"
-                                                                checked={!!gv.hide}
+                                            {draftIsMultiImage
+                                                ? groupNames.map((gName) => {
+                                                    const gv = draft.groupValues[gName] || { images: [] };
+                                                    return (
+                                                        <BlockStack gap="200" key={gName}>
+                                                            <Text as="span" fontWeight="medium" variant="bodySm">
+                                                                {gName}
+                                                            </Text>
+
+                                                            {(gv.images || []).map((imgVal, idx) => (
+                                                                <BlockStack gap="100" key={idx}>
+                                                                    <Text as="span" tone="subdued" variant="bodySm">
+                                                                        Image {idx + 1}
+                                                                        {idx === 0 ? " (Main)" : " (Hover/Alt)"}
+                                                                    </Text>
+
+                                                                    {imgVal.value && (
+                                                                        <img
+                                                                            src={imgVal.value}
+                                                                            alt=""
+                                                                            style={{
+                                                                                width: 56,
+                                                                                height: 56,
+                                                                                objectFit: "cover",
+                                                                                borderRadius: 6,
+                                                                                border: "1px solid #e5e7eb",
+                                                                            }}
+                                                                        />
+                                                                    )}
+
+                                                                    <TextField
+                                                                        labelHidden
+                                                                        label={`${gName} image ${idx + 1}`}
+                                                                        value={imgVal.value || ""}
+                                                                        disabled={imgVal.hide}
+                                                                        onChange={(v) =>
+                                                                            updateDraftGroupImageField(
+                                                                                gName,
+                                                                                idx,
+                                                                                "value",
+                                                                                v
+                                                                            )
+                                                                        }
+                                                                    />
+                                                                    <InlineStack gap="400">
+                                                                        <Checkbox
+                                                                            label="Hide"
+                                                                            checked={!!imgVal.hide}
+                                                                            onChange={(v) =>
+                                                                                updateDraftGroupImageField(
+                                                                                    gName,
+                                                                                    idx,
+                                                                                    "hide",
+                                                                                    v
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                        <Checkbox
+                                                                            label="Leave as is"
+                                                                            checked={!!imgVal.leaveAsIs}
+                                                                            onChange={(v) =>
+                                                                                updateDraftGroupImageField(
+                                                                                    gName,
+                                                                                    idx,
+                                                                                    "leaveAsIs",
+                                                                                    v
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                    </InlineStack>
+                                                                </BlockStack>
+                                                            ))}
+                                                            <Divider />
+                                                        </BlockStack>
+                                                    );
+                                                })
+                                                : groupNames.map((gName) => {
+                                                    const gv =
+                                                        draft.groupValues[gName] || {
+                                                            value: "",
+                                                            hide: false,
+                                                            leaveAsIs: false,
+                                                        };
+                                                    return (
+                                                        <BlockStack gap="100" key={gName}>
+                                                            <Text as="span" fontWeight="medium" variant="bodySm">
+                                                                {gName}
+                                                            </Text>
+                                                            <TextField
+                                                                labelHidden
+                                                                label={gName}
+                                                                value={gv.value || ""}
+                                                                multiline={draft.type === "html"}
+                                                                disabled={gv.hide}
                                                                 onChange={(v) =>
-                                                                    updateDraftGroupField(gName, "hide", v)
+                                                                    updateDraftGroupField(gName, "value", v)
                                                                 }
                                                             />
-                                                            <Checkbox
-                                                                label="Leave as is"
-                                                                checked={!!gv.leaveAsIs}
-                                                                onChange={(v) =>
-                                                                    updateDraftGroupField(gName, "leaveAsIs", v)
-                                                                }
-                                                            />
-                                                        </InlineStack>
-                                                    </BlockStack>
-                                                );
-                                            })}
+                                                            <InlineStack gap="400">
+                                                                <Checkbox
+                                                                    label="Hide"
+                                                                    checked={!!gv.hide}
+                                                                    onChange={(v) =>
+                                                                        updateDraftGroupField(gName, "hide", v)
+                                                                    }
+                                                                />
+                                                                <Checkbox
+                                                                    label="Leave as is"
+                                                                    checked={!!gv.leaveAsIs}
+                                                                    onChange={(v) =>
+                                                                        updateDraftGroupField(gName, "leaveAsIs", v)
+                                                                    }
+                                                                />
+                                                            </InlineStack>
+                                                        </BlockStack>
+                                                    );
+                                                })}
 
                                             <InlineStack align="end">
                                                 <Button variant="primary" onClick={saveDraft} loading={savingMod}>

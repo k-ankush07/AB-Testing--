@@ -58,6 +58,7 @@ router.get("/preview/active-list", async (req, res) => {
       name: experiment.name,
       testGroups: experiment.testGroups,
       modifications: experiment.modifications || [],
+      countries: experiment.countries || [],
       startedAt: experiment.startedAt,
       updatedAt: experiment.updatedAt,
     }));
@@ -104,6 +105,7 @@ router.get("/preview/:id", async (req, res) => {
         name: experiment.name,
         testGroups: experiment.testGroups,
         modifications: experiment.modifications || [],
+        countries: experiment.countries || [],
         updatedAt: experiment.updatedAt,
       },
     });
@@ -160,7 +162,7 @@ router.put("/preview/:id/toolbar-exit", async (req, res) => {
     const experiment = await Experiment.findOneAndUpdate(
       { experimentId: id },
       { toolbarExited },
-      { new: true }
+      { new: true },
     );
 
     if (!experiment) {

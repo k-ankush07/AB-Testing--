@@ -1,11 +1,13 @@
 import { useState, useRef, useEffect } from "react";
 import TestGroups from "./components/Dashboard/testGroups";
 import Mods from "./components/Dashboard/Mods";
+import Targeting from "./components/Dashboard/Targeting";
 import { requireShopData } from "./components/shop.server";
 import { useLoaderData, useLocation, useSearchParams, Link, useNavigate } from "react-router";
 import { apiRequest, apiGet, apiPut } from "./components/utils/api";
-
-import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Spinner } from "@shopify/polaris";
+import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Spinner, Icon } from "@shopify/polaris";
+import { EditIcon } from "@shopify/polaris-icons";
+import { SaveBar } from "@shopify/app-bridge-react";
 
 const TAB_TO_PARAM = {
     0: "testGroups",
@@ -60,12 +62,15 @@ export default function Experiment() {
     const shop = location.state?.shop || shopFromLoader;
     const [saving, setSaving] = useState(false);
     const [loadingExperiment, setLoadingExperiment] = useState(false);
+    const [selectedCountries, setSelectedCountries] = useState([]);
     const navigate = useNavigate();
 
     const [searchParams, setSearchParams] = useSearchParams();
     const action = searchParams.get("action") || "new";
     const experimentId = searchParams.get("id");
     const isEditMode = action === "edit" && !!experimentId;
+    const [isDirty, setIsDirty] = useState(false);
+    const initialSnapshot = useRef(null);
 
     const tab = searchParams.get("tab") || "testGroups";
 
@@ -80,12 +85,22 @@ export default function Experiment() {
     const barRef = useRef(null);
 
     useEffect(() => {
-        if (!isEditMode) return;
+        if (!isEditMode) {
+            initialSnapshot.current = JSON.stringify({ experimentName, groups, selectedCountries });
+            return;
+        }
         const experimentFromState = location.state?.experiment;
 
         if (experimentFromState) {
             setExperimentName(experimentFromState.name);
             setGroups(experimentFromState.testGroups);
+            setSelectedCountries(experimentFromState.countries || []);
+            initialSnapshot.current = JSON.stringify({
+                experimentName: experimentFromState.name,
+                groups: experimentFromState.testGroups,
+                selectedCountries: experimentFromState.countries || [],
+            });
+            setIsDirty(false);
             return;
         }
 
@@ -95,6 +110,13 @@ export default function Experiment() {
                 const data = await apiGet(`/experiments/${experimentId}`);
                 setExperimentName(data.experiment.name);
                 setGroups(data.experiment.testGroups);
+                setSelectedCountries(data.experiment.countries || []);
+                initialSnapshot.current = JSON.stringify({
+                    experimentName: data.experiment.name,
+                    groups: data.experiment.testGroups,
+                    selectedCountries: data.experiment.countries || [],
+                });
+                setIsDirty(false);
                 console.log(data.experiment);
             } catch (err) {
                 console.error("Failed to load experiment:", err);
@@ -195,6 +217,7 @@ export default function Experiment() {
                     name: g.name,
                     percent: g.percent,
                 })),
+                countries: selectedCountries,
             };
 
             const data = isEditMode
@@ -204,13 +227,39 @@ export default function Experiment() {
                     body: JSON.stringify(payload),
                 });
 
+            initialSnapshot.current = JSON.stringify({ experimentName, groups, selectedCountries });
+            setIsDirty(false);
+
+            if (window.shopify?.saveBar) {
+                window.shopify.saveBar.hide("experiment-save-bar");
+            }
+
             console.log("Experiment saved:", data.experiment);
-            navigate("/app");
+            // navigate("/app");
         } catch (err) {
             console.error(err);
             alert("Error saving experiment: " + err.message);
         } finally {
             setSaving(false);
+        }
+    };
+
+    useEffect(() => {
+        if (initialSnapshot.current === null) return;
+        const current = JSON.stringify({ experimentName, groups, selectedCountries });
+        setIsDirty(current !== initialSnapshot.current);
+    }, [experimentName, groups, selectedCountries]);
+
+    const handleDiscard = () => {
+        if (!initialSnapshot.current) return;
+        const original = JSON.parse(initialSnapshot.current);
+        setExperimentName(original.experimentName);
+        setGroups(original.groups);
+        setSelectedCountries(original.selectedCountries || []);
+        setIsDirty(false);
+
+        if (window.shopify?.saveBar) {
+            window.shopify.saveBar.hide("experiment-save-bar");
         }
     };
 
@@ -226,6 +275,17 @@ export default function Experiment() {
 
     return (
         <Page fullWidth>
+            <SaveBar id="experiment-save-bar" open={isDirty}>
+                <button
+                    variant="primary" onClick={(e) => { e.preventDefault(); handleSave(); }}
+                    {...(saving ? { loading: "" } : {})}>
+                    Save </button>
+                <button
+                    onClick={(e) => { e.preventDefault(); handleDiscard(); }}>
+                    Discard
+                </button>
+            </SaveBar>
+
             <BlockStack gap="400">
                 <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="050">
@@ -249,15 +309,22 @@ export default function Experiment() {
                         ) : (
                             <Text as="h1" variant="headingLg">
                                 <span
-                                    style={{ cursor: "pointer" }}
+                                    style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: "6px" }}
                                     onClick={() => setEditingName(true)}
                                 >
-                                    {experimentName} ✎
+                                    {experimentName}
+                                    <Icon source={EditIcon} tone="subdued" />
                                 </span>
                             </Text>
                         )}
                     </BlockStack>
-                    <Button variant="primary" tone="success" onClick={handleSave} loading={saving}>
+                    <Button
+                        variant="primary"
+                        tone="success"
+                        onClick={handleSave}
+                        loading={saving}
+                        disabled={!isDirty || saving}
+                    >
                         Save
                     </Button>
                 </InlineStack>
@@ -292,6 +359,12 @@ export default function Experiment() {
                                 return next;
                             });
                         }}
+                    />
+                )}
+                {tab === "targeting" && (
+                    <Targeting
+                        value={selectedCountries}
+                        onChange={setSelectedCountries}
                     />
                 )}
             </BlockStack>

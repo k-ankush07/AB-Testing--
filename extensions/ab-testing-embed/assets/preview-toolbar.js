@@ -5,7 +5,9 @@
   const assets = [
     "preview-toolbar-state.js",
     "preview-toolbar-api.js",
-    "preview-toolbar-ui.js",
+    "preview-toolbar-ui-selection.js",
+    "preview-toolbar-ui-panels.js",
+    "preview-toolbar-ui-toolbar.js",
   ];
 
   function runInit() {

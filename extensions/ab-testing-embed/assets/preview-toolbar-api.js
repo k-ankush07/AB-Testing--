@@ -191,6 +191,7 @@
     if (!res.ok) return null;
 
     const data = await res.json();
+
     const experimentsRaw = (data && data.experiments) || [];
     if (!experimentsRaw.length) return null;
 
@@ -221,7 +222,9 @@
   ns.init = async function () {
     ns.initializeTokens();
 
-    if (!ns.isPreviewPage()) {
+    const builderActive = ns.hasBuilderToken() && !ns.isToolbarExited();
+
+    if (!ns.isPreviewPage() && !builderActive) {
       await ns.runMergeFlow();
       return;
     }
