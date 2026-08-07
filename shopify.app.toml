@@ -2,7 +2,7 @@
 
 client_id = "05bcc0b4784c5196df9b274d67c57496"
 name = "Ab Testing"
-application_url = "https://remarkable-butterfly-looksmart-louise.trycloudflare.com"
+application_url = "https://scripting-eau-bachelor-qualifications.trycloudflare.com"
 embedded = true
 
 [build]
@@ -20,9 +20,9 @@ api_version = "2026-07"
 
 [access_scopes]
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = "write_products,write_themes,read_orders"
+scopes = "write_products,write_themes,read_orders,read_themes"
 
 [auth]
 redirect_urls = [
-  "https://remarkable-butterfly-looksmart-louise.trycloudflare.com/api/auth"
+  "https://scripting-eau-bachelor-qualifications.trycloudflare.com/api/auth"
 ]

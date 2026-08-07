@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from "react";
 import TestGroups from "./components/Dashboard/testGroups";
 import Mods from "./components/Dashboard/Mods";
 import Targeting from "./components/Dashboard/Targeting";
+import Preview from "./components/Dashboard/Preview";
+
 import { requireShopData } from "./components/shop.server";
 import { useLoaderData, useLocation, useSearchParams, Link, useNavigate } from "react-router";
 import { apiRequest, apiGet, apiPut } from "./components/utils/api";
@@ -366,6 +368,9 @@ export default function Experiment() {
                         value={selectedCountries}
                         onChange={setSelectedCountries}
                     />
+                )}
+                {tab === "preview" && (
+                    <Preview />
                 )}
             </BlockStack>
         </Page>
