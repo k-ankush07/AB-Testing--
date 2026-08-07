@@ -12,6 +12,7 @@ import {
     Checkbox,
     Divider,
     Spinner,
+    Modal
 } from "@shopify/polaris";
 import { EditIcon, DeleteIcon } from "@shopify/polaris-icons";
 import { apiGet, apiPost, apiPut, apiDelete } from "../utils/api";
@@ -42,9 +43,8 @@ function getModPreviewLine(gName, gv, isMulti) {
         return `${gName}: ${count} image${count > 1 ? "s" : ""}`;
     }
     if (!gv) return `${gName}: —`;
-    return `${gName}: ${
-        gv.hide ? "Remove" : gv.leaveAsIs ? "Leave as is" : (gv.value || "").slice(0, 40)
-    }`;
+    return `${gName}: ${gv.hide ? "Remove" : gv.leaveAsIs ? "Leave as is" : (gv.value || "").slice(0, 40)
+        }`;
 }
 
 export default function Modifications({
@@ -53,6 +53,7 @@ export default function Modifications({
     testGroups = [],
     experimentName,
     onExperimentCreated,
+    appEmbedId
 }) {
     const [loadingBuilder, setLoadingBuilder] = useState(false);
     const [loadingMods, setLoadingMods] = useState(true);
@@ -61,6 +62,13 @@ export default function Modifications({
     const [draft, setDraft] = useState(null);
     const [savingMod, setSavingMod] = useState(false);
     const [deletingId, setDeletingId] = useState(null);
+
+    const [checkingEmbed, setCheckingEmbed] = useState(false);
+    const [showEmbedModal, setShowEmbedModal] = useState(false);
+    const [pendingAction, setPendingAction] = useState(null);
+    const [activeThemeId, setActiveThemeId] = useState(null);
+    const [appEmbedTarget, setAppEmbedTarget] = useState(null);
+
 
     useEffect(() => {
         if (!experimentId) {
@@ -244,6 +252,42 @@ export default function Modifications({
     }
 
     const draftIsMultiImage = isMultiImageMod(draft);
+
+    const checkAppEmbedStatus = async () => {
+        const res = await fetch(`/theme/embed-status?shop=${shopDomain}`);
+        if (!res.ok) throw new Error("Failed to fetch embed status");
+        const data = await res.json();
+        return data;
+    };
+
+    const handleBuilderClick = async (actionType) => {
+        setCheckingEmbed(true);
+        try {
+            const { enabled, themeId, appEmbedTarget: target } = await checkAppEmbedStatus();
+            if (!enabled) {
+                setActiveThemeId(themeId);
+                setAppEmbedTarget(target);
+                setPendingAction(actionType);
+                setShowEmbedModal(true);
+                return;
+            }
+            openVisualBuilder();
+        } catch (err) {
+            console.error("Failed to check app embed status:", err);
+            openVisualBuilder();
+        } finally {
+            setCheckingEmbed(false);
+        }
+    };
+
+    const redirectToThemeEmbedSettings = () => {
+        const storeHandle = shopDomain.replace(".myshopify.com", "");
+        const APP_CLIENT_ID = appEmbedId;
+        const base = `https://admin.shopify.com/store/${storeHandle}/themes/${activeThemeId}/editor?context=apps`;
+        const embedUrl = `${base}&activateAppId=${APP_CLIENT_ID}%2Fpreview-toolbar`;
+        window.open(embedUrl, "_blank");
+        setShowEmbedModal(false);
+    };
 
     return (
         <Card>
@@ -504,17 +548,49 @@ export default function Modifications({
                         <Divider />
 
                         <InlineStack gap="200" align="center">
-                            <Button onClick={openVisualBuilder} loading={loadingBuilder}>
+                            <Button
+                                onClick={() => handleBuilderClick("builder")}
+                                loading={loadingBuilder || checkingEmbed}
+                            >
                                 Visual Builder
                             </Button>
                             <Text as="span" tone="subdued">OR</Text>
-                            <Button onClick={openVisualBuilder} loading={loadingBuilder}>
+                            <Button
+                                onClick={() => handleBuilderClick("legacy")}
+                                loading={loadingBuilder || checkingEmbed}
+                            >
                                 Legacy onsite editor
                             </Button>
                         </InlineStack>
                     </>
                 )}
             </BlockStack>
+
+            <Modal
+                open={showEmbedModal}
+                onClose={() => setShowEmbedModal(false)}
+                title="Enable App Embed"
+                primaryAction={{
+                    content: "Go to Theme Editor",
+                    onAction: redirectToThemeEmbedSettings,
+                }}
+                secondaryActions={[
+                    {
+                        content: "Cancel",
+                        onAction: () => setShowEmbedModal(false),
+                    },
+                ]}
+            >
+                <Modal.Section>
+                    <BlockStack gap="200">
+                        <Text as="p">
+                            The Intelligems app embed isn't enabled on your live theme yet.
+                            You'll need to turn it on before using the editor.
+                        </Text>
+                    </BlockStack>
+                </Modal.Section>
+            </Modal>
+
         </Card>
     );
 }

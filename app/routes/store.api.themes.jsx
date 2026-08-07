@@ -7,7 +7,7 @@ export const loader = async ({ request }) => {
   const response = await admin.graphql(
     `#graphql
     query getThemes {
-      themes(first: 50) {
+      themes(first: 250) {
         nodes {
           id
           name

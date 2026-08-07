@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import {
   Card,
   BlockStack,
@@ -8,13 +8,18 @@ import {
   Tag,
   Icon,
   Box,
+  Spinner,
 } from "@shopify/polaris";
 import { SearchIcon } from "@shopify/polaris-icons";
 import { COUNTRIES } from "../utils/countries";
 
-export default function Targeting({ value = [], onChange }) {
+export default function Targeting({ value = [], onChange, loading = false }) {
   const [selectedCountries, setSelectedCountries] = useState(value);
   const [inputValue, setInputValue] = useState("");
+
+  useEffect(() => {
+    setSelectedCountries(value);
+  }, [value]);
 
   const options = useMemo(
     () =>
@@ -53,6 +58,18 @@ export default function Targeting({ value = [], onChange }) {
     },
     [selectedCountries, updateSelection],
   );
+
+  if (loading) {
+    return (
+      <Card>
+        <Box padding="800">
+          <InlineStack align="center">
+            <Spinner accessibilityLabel="Loading targeting" size="small" />
+          </InlineStack>
+        </Box>
+      </Card>
+    );
+  }
 
   const selectedLabels = selectedCountries
     .map((code) => COUNTRIES.find((c) => c.code === code)?.label)

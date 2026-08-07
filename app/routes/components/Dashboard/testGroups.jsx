@@ -1,19 +1,21 @@
-
-import {
-    Text,
-    BlockStack,
-    InlineStack,
-    Button,
-    Card,
-    TextField,
-    Box,
-} from "@shopify/polaris";
+import { Text, BlockStack, InlineStack, Button, Card, TextField, Box, Spinner } from "@shopify/polaris";
 import { PlusIcon, ArrowRightIcon } from "@shopify/polaris-icons";
 
 export default function TestGroups({ groups, COLORS, editingId, addGroup, barRef, handleDragStart, setEditingId,
-    removeGroup, renameGroup
-    
+    removeGroup, renameGroup, loadingExperiment
 }) {
+    if (loadingExperiment) {
+        return (
+            <Card>
+                <Box padding="800">
+                    <InlineStack align="center">
+                        <Spinner accessibilityLabel="Loading test groups" size="small" />
+                    </InlineStack>
+                </Box>
+            </Card>
+        );
+    }
+
     return (
         <Card>
             <BlockStack gap="400">
@@ -25,7 +27,6 @@ export default function TestGroups({ groups, COLORS, editingId, addGroup, barRef
                             percent of site traffic to each.
                         </Text>
                     </BlockStack>
-                    <Button icon={ArrowRightIcon}>Next step</Button>
                 </InlineStack>
 
                 <Box paddingBlockStart="400">

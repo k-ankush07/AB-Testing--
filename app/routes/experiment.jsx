@@ -2,12 +2,13 @@ import { useState, useRef, useEffect } from "react";
 import TestGroups from "./components/Dashboard/testGroups";
 import Mods from "./components/Dashboard/Mods";
 import Targeting from "./components/Dashboard/Targeting";
-import Preview from "./components/Dashboard/Preview";
+import PreviewTheme from "./components/Dashboard/PreviewTheme";
+import ConfigureAnalytics from "./components/Dashboard/Configure-Analytics";
 
 import { requireShopData } from "./components/shop.server";
 import { useLoaderData, useLocation, useSearchParams, Link, useNavigate } from "react-router";
 import { apiRequest, apiGet, apiPut } from "./components/utils/api";
-import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Spinner, Icon } from "@shopify/polaris";
+import { Page, Text, BlockStack, InlineStack, Button, Badge, Tabs, TextField, Icon } from "@shopify/polaris";
 import { EditIcon } from "@shopify/polaris-icons";
 import { SaveBar } from "@shopify/app-bridge-react";
 
@@ -49,8 +50,19 @@ function redistribute(groups) {
     }));
 }
 
+function statusBadgeProps(status) {
+    if (status === "active") {
+        return { tone: "success", label: "Live" };
+    }
+    return { tone: "attention", label: "Pending" };
+}
+
 export const loader = async ({ request }) => {
-    return await requireShopData(request);
+    const shopData = await requireShopData(request);
+    return {
+        ...shopData,
+        appEmbedId: process.env.SHOPIFY_API_KEY || "",
+    };
 };
 
 const today = new Date().toLocaleDateString("en-US", {
@@ -60,11 +72,15 @@ const today = new Date().toLocaleDateString("en-US", {
 
 export default function Experiment() {
     const location = useLocation();
-    const { shop: shopFromLoader } = useLoaderData();
+    const { shop: shopFromLoader, appEmbedId } = useLoaderData();
     const shop = location.state?.shop || shopFromLoader;
     const [saving, setSaving] = useState(false);
     const [loadingExperiment, setLoadingExperiment] = useState(false);
     const [selectedCountries, setSelectedCountries] = useState([]);
+    const [theme, setTheme] = useState("");
+
+    const [status, setStatus] = useState("pending");
+
     const navigate = useNavigate();
 
     const [searchParams, setSearchParams] = useSearchParams();
@@ -88,7 +104,9 @@ export default function Experiment() {
 
     useEffect(() => {
         if (!isEditMode) {
-            initialSnapshot.current = JSON.stringify({ experimentName, groups, selectedCountries });
+            initialSnapshot.current = null;
+            setStatus("pending");
+            setIsDirty(true);
             return;
         }
         const experimentFromState = location.state?.experiment;
@@ -97,6 +115,7 @@ export default function Experiment() {
             setExperimentName(experimentFromState.name);
             setGroups(experimentFromState.testGroups);
             setSelectedCountries(experimentFromState.countries || []);
+            setStatus(experimentFromState.status || "pending");
             initialSnapshot.current = JSON.stringify({
                 experimentName: experimentFromState.name,
                 groups: experimentFromState.testGroups,
@@ -113,6 +132,7 @@ export default function Experiment() {
                 setExperimentName(data.experiment.name);
                 setGroups(data.experiment.testGroups);
                 setSelectedCountries(data.experiment.countries || []);
+                setStatus(data.experiment.status || "pending");
                 initialSnapshot.current = JSON.stringify({
                     experimentName: data.experiment.name,
                     groups: data.experiment.testGroups,
@@ -231,6 +251,23 @@ export default function Experiment() {
 
             initialSnapshot.current = JSON.stringify({ experimentName, groups, selectedCountries });
             setIsDirty(false);
+            if (data?.experiment?.status) {
+                setStatus(data.experiment.status);
+            }
+
+            if (!isEditMode) {
+                const newId = data?.experiment?.experimentId;
+                if (newId) {
+                    setSearchParams((prev) => {
+                        const next = new URLSearchParams(prev);
+                        next.set("id", newId);
+                        next.set("action", "edit");
+                        return next;
+                    });
+                } else {
+                    console.error("Save response me experimentId nahi mila:", data);
+                }
+            }
 
             if (window.shopify?.saveBar) {
                 window.shopify.saveBar.hide("experiment-save-bar");
@@ -253,6 +290,17 @@ export default function Experiment() {
     }, [experimentName, groups, selectedCountries]);
 
     const handleDiscard = () => {
+        if (!isEditMode) {
+            setExperimentName(`Content Edits Test · ${today}`);
+            setGroups(redistribute([makeGroup(0), makeGroup(1)]));
+            setSelectedCountries([]);
+            setIsDirty(true);
+            if (window.shopify?.saveBar) {
+                window.shopify.saveBar.hide("experiment-save-bar");
+            }
+            return;
+        }
+
         if (!initialSnapshot.current) return;
         const original = JSON.parse(initialSnapshot.current);
         setExperimentName(original.experimentName);
@@ -265,15 +313,7 @@ export default function Experiment() {
         }
     };
 
-    if (loadingExperiment) {
-        return (
-            <Page fullWidth>
-                <InlineStack align="center">
-                    <Spinner accessibilityLabel="Loading experiment" size="large" />
-                </InlineStack>
-            </Page>
-        );
-    }
+    const { tone: statusTone, label: statusLabel } = statusBadgeProps(status);
 
     return (
         <Page fullWidth>
@@ -298,7 +338,6 @@ export default function Experiment() {
                             <Text as="span" tone="subdued">›</Text>
                             <Text as="span" tone="subdued">{experimentName}</Text>
                         </InlineStack>
-
                         {editingName ? (
                             <TextField
                                 labelHidden
@@ -319,6 +358,11 @@ export default function Experiment() {
                                 </span>
                             </Text>
                         )}
+
+                        <InlineStack>
+                            <Badge tone={statusTone}>{statusLabel}</Badge>
+                        </InlineStack>
+
                     </BlockStack>
                     <Button
                         variant="primary"
@@ -346,6 +390,7 @@ export default function Experiment() {
                     setEditingId={setEditingId}
                     removeGroup={removeGroup}
                     renameGroup={renameGroup}
+                    loadingExperiment={loadingExperiment}
                 />)}
                 {tab === "mods" && (
                     <Mods
@@ -361,6 +406,7 @@ export default function Experiment() {
                                 return next;
                             });
                         }}
+                        appEmbedId={appEmbedId}
                     />
                 )}
                 {tab === "targeting" && (
@@ -370,8 +416,50 @@ export default function Experiment() {
                     />
                 )}
                 {tab === "preview" && (
-                    <Preview />
+                    experimentId ? (
+                        <PreviewTheme
+                            value={theme}
+                            onChange={setTheme}
+                            shop={shop}
+                            experimentId={experimentId}
+                            testGroups={groups}
+                        />
+                    ) : (
+                        <div
+                            style={{
+                                border: "1px solid var(--p-color-border)",
+                                borderRadius: "8px",
+                                minHeight: "420px",
+                                display: "flex",
+                                flexDirection: "column",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                gap: "16px",
+                                padding: "40px",
+                            }}
+                        >
+                            <svg
+                                width="64"
+                                height="64"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="#6b6b6b"
+                                strokeWidth="1.5"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                            >
+                                <path d="M17.94 17.94A10.94 10.94 0 0 1 12 20c-7 0-11-8-11-8a21.8 21.8 0 0 1 5.06-6.06M9.9 4.24A10.94 10.94 0 0 1 12 4c7 0 11 8 11 8a21.8 21.8 0 0 1-2.16 3.19" />
+                                <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24" />
+                                <line x1="1" y1="1" x2="23" y2="23" />
+                            </svg>
+                            <Text as="p" variant="bodyLg">
+                                Please save your Test to access the preview.
+                            </Text>
+                        </div>
+                    )
                 )}
+                {tab === "analytics" && (
+                    <ConfigureAnalytics />)}
             </BlockStack>
         </Page>
     );

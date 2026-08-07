@@ -19,8 +19,63 @@
     currentTargetEl: null,
     pendingModification: null,
     saving: false,
+
+    modifiedEls: new Set(),
   };
 
+  ns.HIGHLIGHT_BOX_SHADOW = "inset 0 0 0 2px #F59E0B";
+
+  ns.applyHighlightState = function (el) {
+    if (!el || !el.isConnected) return;
+    if (ns.state.highlightOn) {
+      el.style.boxShadow = ns.HIGHLIGHT_BOX_SHADOW;
+    } else {
+      el.style.boxShadow = "";
+    }
+  };
+
+  ns.refreshAllHighlights = function () {
+    ns.state.modifiedEls.forEach((el) => {
+      if (!el.isConnected) {
+
+        ns.state.modifiedEls.delete(el);
+        return;
+      }
+      ns.applyHighlightState(el);
+    });
+  };
+
+  ns.trackModifiedEl = function (el) {
+    if (!el) return;
+    ns.state.modifiedEls.add(el);
+    ns.applyHighlightState(el);
+  };
+
+  ns.root = function () {
+    if (ns.shadowRoot) return ns.shadowRoot;
+
+    const host = document.createElement("div");
+    host.id = "ig-toolbar-host";
+
+    host.appendChild(document.createTextNode("\u200B"));
+
+    host.style.setProperty("display", "block", "important");
+    host.style.setProperty("position", "static", "important");
+
+    document.body.appendChild(host);
+
+    ns.shadowHost = host;
+    ns.shadowRoot = host.attachShadow({ mode: "open" });
+
+    if (window.__igToolbarCssUrl) {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = window.__igToolbarCssUrl;
+      ns.shadowRoot.appendChild(link);
+    }
+
+    return ns.shadowRoot;
+  };
   ns.initializeTokens = function () {
     const params = new URLSearchParams(window.location.search);
     const hashParams = new URLSearchParams(
@@ -42,7 +97,6 @@
     }
   };
 
-  // ---------- CACHE HELPERS ----------
   // ---------- CACHE HELPERS ----------
   ns.getCacheKey = function () {
     return "ig-exp-cache-" + window.location.hostname;
@@ -81,7 +135,6 @@
 
   // ---------- VISITOR COUNTRY ----------
   ns.getVisitorCountry = function () {
-
     if (window.__igVisitorCountry) return window.__igVisitorCountry;
 
     const meta = document.querySelector('meta[name="ig-visitor-country"]');
@@ -92,7 +145,7 @@
 
   ns.matchesCountryTargeting = function (experimentData) {
     const countries = experimentData.countries;
-    if (!countries || !countries.length) return true; 
+    if (!countries || !countries.length) return true;
 
     const visitorCountry = ns.getVisitorCountry();
     if (!visitorCountry) return false;

@@ -7,7 +7,7 @@
   ns.saveModifications = async function () {
     if (ns.state.saving) return;
     ns.state.saving = true;
-    const saveBtn = document.getElementById("ig-save-btn");
+    const saveBtn = ns.root().getElementById("ig-save-btn");
     if (saveBtn) {
       saveBtn.textContent = "Saving...";
       saveBtn.disabled = true;
@@ -48,7 +48,7 @@
   };
 
   ns.updateSaveButtonState = function () {
-    const saveBtn = document.getElementById("ig-save-btn");
+    const saveBtn = ns.root().getElementById("ig-save-btn");
     if (!saveBtn) return;
     saveBtn.disabled = false;
     saveBtn.style.background = "#fff";
@@ -57,7 +57,7 @@
   };
 
   ns.updateLastUpdatedText = function (text) {
-    const el = document.getElementById("ig-last-updated-text");
+    const el = ns.root().getElementById("ig-last-updated-text");
     if (el) el.textContent = `Last updated: ${text}`;
   };
 
@@ -114,9 +114,7 @@
     return ns.isBuilderSession();
   };
 
-  // ---------- TOOLBAR EXIT FLAG (persistent) ----------
   ns.TOOLBAR_EXIT_KEY = "ig-toolbar-exited";
-
   ns.BUILDER_SESSION_KEY = "ig-builder-session";
 
   ns.markBuilderSession = function () {
@@ -136,7 +134,17 @@
     return params.has("ig-preview");
   };
 
+  ns.hasThemePreviewParam = function () {
+    const params = new URLSearchParams(window.location.search);
+    return params.has("preview_theme_id");
+  };
+
+  ns.isDirectPreviewLink = function () {
+    return ns.isPreviewPage() || ns.hasThemePreviewParam();
+  };
+
   ns.isToolbarExited = function () {
+    if (ns.isDirectPreviewLink()) return false;
     try {
       return sessionStorage.getItem(ns.TOOLBAR_EXIT_KEY) === "1";
     } catch (e) {
@@ -145,6 +153,7 @@
   };
 
   ns.markToolbarExited = function () {
+    if (ns.isDirectPreviewLink()) return;
     try {
       sessionStorage.setItem(ns.TOOLBAR_EXIT_KEY, "1");
     } catch (e) {}
@@ -156,8 +165,93 @@
     } catch (e) {}
   };
 
+  ns.getPreviewIdFromUrl = function () {
+    const params = new URLSearchParams(window.location.search);
+    return params.get("ig-preview") || null;
+  };
+
+  ns.watchForReRenders = function (experimentsWithGroups) {
+    const experiments = experimentsWithGroups || ns.state.experimentsWithGroups;
+    if (!experiments || !experiments.length) return;
+
+    ns.state.experimentsWithGroups = experiments;
+
+    function anySelectorUnmatched() {
+      return experiments.some(({ experimentData }) =>
+        (experimentData.modifications || []).some((mod) => {
+          if (!mod || !mod.selector) return false;
+          try {
+            return document.querySelectorAll(mod.selector).length === 0;
+          } catch (e) {
+            return false;
+          }
+        }),
+      );
+    }
+
+    function reapply() {
+      const resolved = ns.buildResolvedModifications(experiments);
+      ns.applyResolvedModifications(resolved);
+    }
+    let attempt = 0;
+    const maxAttempts = 15;
+    const delayMs = 300;
+
+    function tryOnce() {
+      attempt++;
+      reapply();
+      if (anySelectorUnmatched() && attempt < maxAttempts) {
+        setTimeout(tryOnce, delayMs);
+      }
+    }
+    tryOnce();
+
+    if (ns.state._reRenderObserver) {
+      ns.state._reRenderObserver.disconnect();
+    }
+
+    let debounceTimer = null;
+    const observer = new MutationObserver(() => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(reapply, 150);
+    });
+
+    observer.observe(document.body, { childList: true, subtree: true });
+    ns.state._reRenderObserver = observer;
+
+    setTimeout(() => {
+      observer.disconnect();
+      ns.state._reRenderObserver = null;
+    }, 8000);
+  };
+
+  ns.PREVIEW_ID_SESSION_KEY = "ig-active-preview-id";
+
+  ns.getPersistedPreviewId = function () {
+    const fromUrl = ns.getPreviewIdFromUrl();
+    if (fromUrl) return fromUrl;
+    try {
+      return sessionStorage.getItem(ns.PREVIEW_ID_SESSION_KEY) || null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  ns.persistPreviewId = function (previewId) {
+    try {
+      if (previewId)
+        sessionStorage.setItem(ns.PREVIEW_ID_SESSION_KEY, previewId);
+    } catch (e) {}
+  };
+
+  ns.clearPersistedPreviewId = function () {
+    try {
+      sessionStorage.removeItem(ns.PREVIEW_ID_SESSION_KEY);
+    } catch (e) {}
+  };
+
   ns.resolveActivePreview = async function () {
-    if (ns.state.previewId) return true;
+    if (ns.state.previewId && ns.state.authToken) return true;
 
     const shop = window.location.hostname;
     try {
@@ -182,7 +276,6 @@
     }
   };
 
-  // ---------- saare active experiments fetch + assign + merge ----------
   ns.fetchAndMergeActiveExperiments = async function () {
     const shop = window.location.hostname;
     const res = await fetch(
@@ -223,29 +316,46 @@
     ns.initializeTokens();
 
     const builderActive = ns.hasBuilderToken() && !ns.isToolbarExited();
+    const persistedPreviewId = ns.getPersistedPreviewId();
 
-    if (!ns.isPreviewPage() && !builderActive) {
+    if (!ns.isPreviewPage() && !builderActive && !persistedPreviewId) {
       await ns.runMergeFlow();
       return;
     }
 
-    if (!ns.state.previewId && ns.isToolbarExited()) {
+    if (
+      !ns.state.previewId &&
+      ns.isToolbarExited() &&
+      !ns.isDirectPreviewLink() &&
+      !persistedPreviewId
+    ) {
       const cached = ns.readCache();
       if (cached && cached.experiments && cached.experiments.length) {
         const resolved = ns.buildResolvedModifications(cached.experiments);
         ns.applyResolvedModifications(resolved);
         ns.revealPreviewPage();
-
+        ns.watchForReRenders(cached.experiments);
         ns.refreshExperimentInBackground();
         return;
       }
     }
 
-    const hasPreview = await ns.resolveActivePreview();
+    await ns.resolveActivePreview();
 
-    if (hasPreview && ns.state.previewId) {
+    if (!ns.state.previewId) {
+      ns.state.previewId = persistedPreviewId;
+    }
+
+    if (ns.state.previewId) {
+      ns.persistPreviewId(ns.state.previewId);
+      ns.markBuilderSession();
+
       if (!ns.state.authToken) {
         console.error("IG Preview: No auth token available");
+
+        ns.state.readOnly = true;
+        ns.createToolbar();
+
         ns.revealPreviewPage();
         return;
       }
@@ -270,9 +380,30 @@
             params.get("ig-builder-mode") || params.get("ig-auth-token")
           );
 
-          if (ns.state.experimentData.toolbarExited && !ns.hasBuilderToken()) {
+          if (
+            ns.state.experimentData.toolbarExited &&
+            !ns.hasBuilderToken() &&
+            !ns.isDirectPreviewLink()
+          ) {
+            const assignedGroup = ns.getAssignedGroup(
+              ns.state.experimentData.experimentId,
+              ns.state.experimentData.testGroups,
+            );
+            ns.state.selectedGroupIndex =
+              ns.state.experimentData.testGroups.findIndex(
+                (g) => g.id === assignedGroup.id,
+              );
+            if (ns.state.selectedGroupIndex === -1)
+              ns.state.selectedGroupIndex = 0;
+
             ns.markToolbarExited();
             ns.applyAllModifications();
+            ns.watchForReRenders([
+              {
+                experimentData: ns.state.experimentData,
+                groupIndex: ns.state.selectedGroupIndex,
+              },
+            ]);
             ns.revealPreviewPage();
             return;
           }
@@ -294,11 +425,14 @@
 
           ns.createToolbar();
           ns.applyAllModifications();
+          ns.watchForReRenders();
           ns.showSuccessToast(`Loaded '${ns.state.experimentData.name}'`);
           ns.revealPreviewPage();
 
-          const cleanUrl = `${window.location.pathname}?ig-preview=${ns.state.previewId}&ig-builder-entity=experiment`;
-          window.history.replaceState(null, "", cleanUrl);
+          if (ns.isPreviewPage()) {
+            const cleanUrl = `${window.location.pathname}?ig-preview=${ns.state.previewId}&ig-builder-entity=experiment`;
+            window.history.replaceState(null, "", cleanUrl);
+          }
           return;
         }
 
@@ -322,9 +456,13 @@
         return;
       }
 
+      ns.state.experimentsWithGroups = experimentsWithGroups;
+
       const resolved = ns.buildResolvedModifications(experimentsWithGroups);
       ns.applyResolvedModifications(resolved);
       ns.revealPreviewPage();
+
+      ns.watchForReRenders(experimentsWithGroups);
 
       ns.writeCache(experimentsWithGroups);
     } catch (err) {

@@ -39,6 +39,7 @@
         isMultiImage: true,
         imageCount: groupInfo.images.length,
         originalHTML: el.outerHTML,
+        originalImages: groupInfo.images.map((imgEl) => imgEl.src || ""),
         groupValues: {},
       };
 
@@ -104,7 +105,7 @@
   }
 
   function renderImagePanel() {
-    const footer = document.getElementById("ig-toolbar-footer");
+    const footer = ns.root().getElementById("ig-toolbar-footer");
     const mod = ns.state.pendingModification;
     mod.isMultiImage = isMultiImageMod(mod);
 
@@ -188,13 +189,11 @@
     </div>
   `;
 
-    document
-      .getElementById("ig-mod-selector")
-      .addEventListener("input", (e) => {
-        mod.selector = e.target.value;
-      });
-    document
-      .getElementById("ig-mod-description")
+    footer.querySelector("#ig-mod-selector").addEventListener("input", (e) => {
+      mod.selector = e.target.value;
+    });
+    footer
+      .querySelector("#ig-mod-description")
       .addEventListener("input", (e) => {
         mod.description = e.target.value;
       });
@@ -277,7 +276,7 @@
       });
     }
 
-    document.getElementById("ig-mod-delete").addEventListener("click", (e) => {
+    footer.querySelector("#ig-mod-delete").addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -303,21 +302,21 @@
       ns.updateLastUpdatedText("just now");
 
       ns.showDefaultFooter();
-
     });
-    document.getElementById("ig-mod-cancel").addEventListener("click", () => {
+    footer.querySelector("#ig-mod-cancel").addEventListener("click", () => {
       ns.state.pendingModification = null;
       ns.state.currentTargetEl = null;
       ns.state.editedFromReplacementsPanel = false;
       ns.showDefaultFooter();
     });
-    document.getElementById("ig-mod-done").addEventListener("click", () => {
+    footer.querySelector("#ig-mod-done").addEventListener("click", () => {
       commitPendingModification();
     });
   }
 
   function openShopifyImageLibrary(onSelect) {
-    const existing = document.getElementById("ig-imglib-overlay");
+    const root = ns.root();
+    const existing = root.getElementById("ig-imglib-overlay");
     if (existing) existing.remove();
 
     let selectedUrl = null;
@@ -356,10 +355,10 @@
     </div>
   `;
 
-    document.body.appendChild(overlay);
+    root.appendChild(overlay);
 
-    const grid = document.getElementById("ig-imglib-grid");
-    const confirmBtn = document.getElementById("ig-imglib-confirm");
+    const grid = overlay.querySelector("#ig-imglib-grid");
+    const confirmBtn = overlay.querySelector("#ig-imglib-confirm");
 
     function renderGrid(list) {
       if (!list.length) {
@@ -408,29 +407,27 @@
     loadFiles("");
 
     let searchTimer = null;
-    document
-      .getElementById("ig-imglib-search")
+    overlay
+      .querySelector("#ig-imglib-search")
       .addEventListener("input", (e) => {
         clearTimeout(searchTimer);
         searchTimer = setTimeout(() => loadFiles(e.target.value.trim()), 350);
       });
 
-    document
-      .getElementById("ig-imglib-refresh")
+    overlay
+      .querySelector("#ig-imglib-refresh")
       .addEventListener("click", () => {
-        loadFiles(document.getElementById("ig-imglib-search").value.trim());
+        loadFiles(overlay.querySelector("#ig-imglib-search").value.trim());
       });
 
     function close() {
       overlay.remove();
     }
 
-    document.getElementById("ig-imglib-close").addEventListener("click", close);
-    document
-      .getElementById("ig-imglib-cancel")
-      .addEventListener("click", close);
-    document
-      .getElementById("ig-imglib-confirm")
+    overlay.querySelector("#ig-imglib-close").addEventListener("click", close);
+    overlay.querySelector("#ig-imglib-cancel").addEventListener("click", close);
+    overlay
+      .querySelector("#ig-imglib-confirm")
       .addEventListener("click", () => {
         if (selectedUrl) {
           onSelect(selectedUrl);
@@ -438,6 +435,7 @@
         close();
       });
 
+    // Listener overlay par khud hai, isliye retargeting issue nahi hai.
     overlay.addEventListener("click", (e) => {
       if (e.target === overlay) close();
     });
@@ -445,7 +443,7 @@
 
   // ---------- HIDE PANEL ----------
   function renderHidePanel() {
-    const footer = document.getElementById("ig-toolbar-footer");
+    const footer = ns.root().getElementById("ig-toolbar-footer");
     const mod = ns.state.pendingModification;
 
     const groupsHTML = ns.state.experimentData.testGroups
@@ -487,13 +485,11 @@
     </div>
   `;
 
-    document
-      .getElementById("ig-mod-selector")
-      .addEventListener("input", (e) => {
-        mod.selector = e.target.value;
-      });
-    document
-      .getElementById("ig-mod-description")
+    footer.querySelector("#ig-mod-selector").addEventListener("input", (e) => {
+      mod.selector = e.target.value;
+    });
+    footer
+      .querySelector("#ig-mod-description")
       .addEventListener("input", (e) => {
         mod.description = e.target.value;
       });
@@ -509,7 +505,7 @@
       mod.groupValues[g].leaveAsIs = false;
     });
 
-    document.getElementById("ig-mod-delete").addEventListener("click", (e) => {
+    footer.querySelector("#ig-mod-delete").addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -537,20 +533,20 @@
       ns.showDefaultFooter();
     });
 
-    document.getElementById("ig-mod-cancel").addEventListener("click", () => {
+    footer.querySelector("#ig-mod-cancel").addEventListener("click", () => {
       ns.state.pendingModification = null;
       ns.state.currentTargetEl = null;
       ns.state.editedFromReplacementsPanel = false;
       ns.showDefaultFooter();
     });
-    document.getElementById("ig-mod-done").addEventListener("click", () => {
+    footer.querySelector("#ig-mod-done").addEventListener("click", () => {
       commitPendingModification();
     });
   }
 
   // ---------- TEXT EDIT PANEL ----------
   function renderTextPanel() {
-    const footer = document.getElementById("ig-toolbar-footer");
+    const footer = ns.root().getElementById("ig-toolbar-footer");
     const mod = ns.state.pendingModification;
 
     const groupsHTML = ns.state.experimentData.testGroups
@@ -608,13 +604,11 @@
     </div>
   `;
 
-    document
-      .getElementById("ig-mod-selector")
-      .addEventListener("input", (e) => {
-        mod.selector = e.target.value;
-      });
-    document
-      .getElementById("ig-mod-description")
+    footer.querySelector("#ig-mod-selector").addEventListener("input", (e) => {
+      mod.selector = e.target.value;
+    });
+    footer
+      .querySelector("#ig-mod-description")
       .addEventListener("input", (e) => {
         mod.description = e.target.value;
       });
@@ -637,7 +631,7 @@
       });
     });
 
-    document.getElementById("ig-mod-delete").addEventListener("click", (e) => {
+    footer.querySelector("#ig-mod-delete").addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
 
@@ -663,15 +657,14 @@
       ns.updateLastUpdatedText("just now");
 
       ns.showDefaultFooter();
-
     });
-    document.getElementById("ig-mod-cancel").addEventListener("click", () => {
+    footer.querySelector("#ig-mod-cancel").addEventListener("click", () => {
       ns.state.pendingModification = null;
       ns.state.currentTargetEl = null;
       ns.state.editedFromReplacementsPanel = false;
       ns.showDefaultFooter();
     });
-    document.getElementById("ig-mod-done").addEventListener("click", () => {
+    footer.querySelector("#ig-mod-done").addEventListener("click", () => {
       commitPendingModification();
     });
   }
@@ -714,7 +707,8 @@
 
   function renderHtmlModal() {
     const mod = ns.state.pendingModification;
-    const existing = document.getElementById("ig-html-modal-overlay");
+    const root = ns.root();
+    const existing = root.getElementById("ig-html-modal-overlay");
     if (existing) existing.remove();
 
     let activeGroupIdx = 0;
@@ -785,12 +779,12 @@
       const myGeneration = ++editorGeneration;
       const groupName = ns.state.experimentData.testGroups[activeGroupIdx].name;
       const gv = mod.groupValues[groupName];
-      const container = document.getElementById("ig-html-editor-container");
+      const container = overlay.querySelector("#ig-html-editor-container");
       if (!container) return;
 
       ensureCodeMirror6Loaded(() => {
         if (myGeneration !== editorGeneration) return;
-        if (!document.getElementById("ig-html-editor-container")) return;
+        if (!overlay.querySelector("#ig-html-editor-container")) return;
 
         const { basicSetup, html, EditorView, EditorState } = CM6;
 
@@ -841,23 +835,23 @@
     }
 
     overlay.innerHTML = buildModalHTML();
-    document.body.appendChild(overlay);
+    root.appendChild(overlay);
 
     function bindModalEvents() {
-      document
-        .getElementById("ig-html-close")
+      overlay
+        .querySelector("#ig-html-close")
         .addEventListener("click", closeModal);
-      document
-        .getElementById("ig-html-cancel")
+      overlay
+        .querySelector("#ig-html-cancel")
         .addEventListener("click", closeModal);
 
-      document
-        .getElementById("ig-html-selector")
+      overlay
+        .querySelector("#ig-html-selector")
         .addEventListener("input", (e) => {
           mod.selector = e.target.value;
         });
 
-      const fallback = document.getElementById("ig-html-textarea-fallback");
+      const fallback = overlay.querySelector("#ig-html-textarea-fallback");
       if (fallback) {
         fallback.addEventListener("input", (e) => {
           if (cmInstance) return;
@@ -868,24 +862,22 @@
         });
       }
 
-      document
-        .getElementById("ig-html-hide")
-        .addEventListener("change", (e) => {
-          const groupName =
-            ns.state.experimentData.testGroups[activeGroupIdx].name;
-          mod.groupValues[groupName].hide = e.target.checked;
-        });
+      overlay.querySelector("#ig-html-hide").addEventListener("change", (e) => {
+        const groupName =
+          ns.state.experimentData.testGroups[activeGroupIdx].name;
+        mod.groupValues[groupName].hide = e.target.checked;
+      });
 
-      document
-        .getElementById("ig-html-leave")
+      overlay
+        .querySelector("#ig-html-leave")
         .addEventListener("change", (e) => {
           const groupName =
             ns.state.experimentData.testGroups[activeGroupIdx].name;
           mod.groupValues[groupName].leaveAsIs = e.target.checked;
         });
 
-      document
-        .getElementById("ig-html-group-select")
+      overlay
+        .querySelector("#ig-html-group-select")
         .addEventListener("change", (e) => {
           const outgoingGroupName =
             ns.state.experimentData.testGroups[activeGroupIdx].name;
@@ -898,7 +890,7 @@
           initEditor();
         });
 
-      document.getElementById("ig-html-apply").addEventListener("click", () => {
+      overlay.querySelector("#ig-html-apply").addEventListener("click", () => {
         const groupName =
           ns.state.experimentData.testGroups[activeGroupIdx].name;
         mod.groupValues[groupName].value = getCurrentEditorValue();
@@ -964,9 +956,89 @@
   }
 
   // ---------- APPLY MODIFICATION TO LIVE DOM ----------
+  function restoreOriginalState(el, mod) {
+    el.style.display = "";
+    if (!mod.originalHTML) {
+      ns.state.modifiedEls.delete(el);
+      el.style.boxShadow = "";
+      return;
+    }
+    const temp = document.createElement("div");
+    temp.innerHTML = mod.originalHTML;
+    const originalEl = temp.firstElementChild;
+    if (originalEl) {
+      if (mod.type === "image") {
+        el.removeAttribute("srcset");
+        el.removeAttribute("sizes");
+        el.src = originalEl.getAttribute("src") || "";
+      } else {
+        el.textContent = originalEl.textContent;
+      }
+    }
+    ns.state.modifiedEls.delete(el);
+    el.style.boxShadow = "";
+  }
+
+  function applyHtmlModToDOM(mod) {
+    const currentGroupName =
+      ns.state.experimentData.testGroups[ns.state.selectedGroupIndex].name;
+    const gv = mod.groupValues[currentGroupName];
+    if (!gv) return;
+
+    let wrapper = document.querySelector(`[data-ig-mod-id="${mod.id}"]`);
+    let originalEl = null;
+    if (!wrapper) {
+      const els = document.querySelectorAll(mod.selector);
+      originalEl = els[0] || null;
+    }
+
+    if (gv.leaveAsIs) {
+      if (wrapper) {
+        const temp = document.createElement("div");
+        temp.innerHTML = mod.originalHTML || "";
+        const restored = temp.firstElementChild;
+        if (restored && wrapper.parentNode) {
+          wrapper.parentNode.replaceChild(restored, wrapper);
+          ns.state.modifiedEls.delete(restored);
+          restored.style.boxShadow = "";
+        }
+      }
+      return; 
+    }
+
+    if (gv.hide) {
+      const target = wrapper || originalEl;
+      if (target) {
+        target.style.display = "none";
+        ns.trackModifiedEl(target);
+      }
+      return;
+    }
+
+    const container = document.createElement("span");
+    container.setAttribute("data-ig-mod-id", mod.id);
+    container.style.display = "contents";
+    container.innerHTML = gv.value;
+
+    if (wrapper) {
+      wrapper.parentNode.replaceChild(container, wrapper);
+    } else if (originalEl) {
+      originalEl.parentNode.replaceChild(container, originalEl);
+    } else {
+      return;
+    }
+
+    ns.trackModifiedEl(container.firstElementChild || container);
+  }
+
   function applyModificationToDOM(mod) {
     if (!mod || !mod.selector) return;
     try {
+      if (mod.type === "html") {
+        applyHtmlModToDOM(mod);
+        return;
+      }
+
       const els = document.querySelectorAll(mod.selector);
       if (!els.length) return;
       const currentGroupName =
@@ -980,7 +1052,20 @@
           gv.images.forEach((imgVal, idx) => {
             const imgEl = imgs[idx];
             if (!imgEl) return;
-            if (imgVal.leaveAsIs) return;
+
+            if (imgVal.leaveAsIs) {
+              imgEl.style.display = "";
+              const orig = mod.originalImages && mod.originalImages[idx];
+              if (orig) {
+                imgEl.removeAttribute("srcset");
+                imgEl.removeAttribute("sizes");
+                imgEl.src = orig;
+              }
+              ns.state.modifiedEls.delete(imgEl);
+              imgEl.style.boxShadow = "";
+              return;
+            }
+
             if (imgVal.hide) {
               imgEl.style.display = "none";
             } else {
@@ -989,35 +1074,31 @@
               imgEl.removeAttribute("sizes");
               imgEl.src = imgVal.value;
             }
+            ns.trackModifiedEl(imgEl);
           });
         });
         return;
       }
 
-      if (gv.leaveAsIs) return;
-
       els.forEach((el) => {
+        if (gv.leaveAsIs) {
+          restoreOriginalState(el, mod);
+          return;
+        }
+
         if (gv.hide) {
           el.style.display = "none";
+          ns.trackModifiedEl(el);
         } else {
           el.style.display = "";
-          if (mod.type === "html") {
-            const temp = document.createElement("div");
-            temp.innerHTML = gv.value;
-            if (el.parentNode && temp.childNodes.length > 0) {
-              const fragment = document.createDocumentFragment();
-              while (temp.firstChild) {
-                fragment.appendChild(temp.firstChild);
-              }
-              el.parentNode.replaceChild(fragment, el);
-            }
-          } else if (mod.type === "image") {
+          if (mod.type === "image") {
             el.removeAttribute("srcset");
             el.removeAttribute("sizes");
             el.src = gv.value;
           } else {
             el.textContent = gv.value;
           }
+          ns.trackModifiedEl(el);
         }
       });
     } catch (err) {

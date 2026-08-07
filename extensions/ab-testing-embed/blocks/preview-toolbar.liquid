@@ -11,9 +11,13 @@
 })();
 </script>
 
-<link rel="stylesheet" href="{{ 'preview-toolbar.css' | asset_url }}">
+<script>
+  window.__igToolbarCssUrl = "{{ 'preview-toolbar.css' | asset_url }}";
+</script>
 
 <link rel="preconnect" href="http://localhost:8001">
+<link rel="stylesheet" href="{{ 'preview-toolbar.css' | asset_url }}">
+
 <script src="{{ 'preview-toolbar.js' | asset_url }}"></script>
 
 <script>

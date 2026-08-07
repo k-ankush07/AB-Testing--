@@ -5,6 +5,7 @@
   const ns = window.igtb;
 
   // ---------- CSS SELECTOR GENERATION ----------
+  // Unchanged — operates purely on the storefront page's own DOM.
   function getSelector(el) {
     if (el.id) return "#" + el.id;
 
@@ -80,7 +81,8 @@
 
   // ---------- TOASTS ----------
   function showSuccessToast(message) {
-    const existingToast = document.getElementById("ig-success-toast");
+    const root = ns.root();
+    const existingToast = root.getElementById("ig-success-toast");
     if (existingToast) existingToast.remove();
 
     const toast = document.createElement("div");
@@ -93,7 +95,7 @@
       font-family: -apple-system, sans-serif; font-size: 14px; font-weight: 600;
     `;
     toast.innerHTML = `<span style="color:#22C55E; font-size:18px;">✓</span><span>${message}</span>`;
-    document.body.appendChild(toast);
+    root.appendChild(toast);
     setTimeout(() => {
       toast.style.transition = "opacity 0.3s ease";
       toast.style.opacity = "0";
@@ -103,7 +105,8 @@
 
   // ---------- HOVER OUTLINE ----------
   function ensureHoverBox() {
-    let box = document.getElementById("ig-hover-box");
+    const root = ns.root();
+    let box = root.getElementById("ig-hover-box");
     if (!box) {
       box = document.createElement("div");
       box.id = "ig-hover-box";
@@ -112,7 +115,7 @@
         border: 2px solid #2563EB; background: rgba(37,99,235,0.08);
         display: none;
       `;
-      document.body.appendChild(box);
+      root.appendChild(box);
     }
     return box;
   }
@@ -134,6 +137,7 @@
       (node) =>
         !node.closest("#ig-preview-toolbar") &&
         node.id !== "ig-hover-box" &&
+        node.id !== "ig-toolbar-host" &&
         !(
           node.tagName === "A" && node.classList.contains("full-unstyled-link")
         ),
@@ -187,13 +191,14 @@
     document.body.style.cursor = "";
     document.removeEventListener("mousemove", onMouseMoveForHover, true);
     document.removeEventListener("click", onClickForHover, true);
-    const box = document.getElementById("ig-hover-box");
+    const box = ns.root().getElementById("ig-hover-box");
     if (box) box.style.display = "none";
   }
 
   // ---------- ELEMENT ACTION MENU ----------
   function showElementActionMenu(el) {
-    const existing = document.getElementById("ig-action-menu");
+    const root = ns.root();
+    const existing = root.getElementById("ig-action-menu");
     if (existing) existing.remove();
 
     const isImage = el.tagName === "IMG";
@@ -226,7 +231,7 @@
   `;
 
     menu.appendChild(popup);
-    document.body.appendChild(menu);
+    root.appendChild(menu);
 
     popup.querySelectorAll(".ig-action-item").forEach((item) => {
       item.addEventListener("click", (ev) => {
@@ -241,7 +246,13 @@
       document.addEventListener(
         "click",
         function closeMenu(ev) {
-          if (!menu.contains(ev.target)) {
+          // composedPath() sahi tarike se check karta hai chahe listener
+          // document par ho aur click shadow root ke andar se aaya ho —
+          // menu.contains(ev.target) shadow boundary cross karne par
+          // retargeting ki wajah se hamesha false aata, isliye woh use
+          // nahi kiya.
+          const path = ev.composedPath ? ev.composedPath() : [];
+          if (!path.includes(menu)) {
             menu.remove();
             document.removeEventListener("click", closeMenu, true);
           }
@@ -251,7 +262,6 @@
     }, 0);
   }
 
-  // ---------- MULTI-EXPERIMENT MERGE LOGIC ----------
   function buildResolvedModifications(experiments) {
     const claimedElements = new Set();
     const resolved = [];
@@ -359,7 +369,8 @@
   ns.applyResolvedModifications = applyResolvedModifications;
 
   function showReplaceConfirmModal(existingMod, el) {
-    const existing = document.getElementById("ig-replace-confirm-overlay");
+    const root = ns.root();
+    const existing = root.getElementById("ig-replace-confirm-overlay");
     if (existing) existing.remove();
 
     const overlay = document.createElement("div");
@@ -382,19 +393,18 @@
     </div>
   `;
 
-    document.body.appendChild(overlay);
+    root.appendChild(overlay);
 
-    document
-      .getElementById("ig-replace-cancel")
+    overlay
+      .querySelector("#ig-replace-cancel")
       .addEventListener("click", () => {
         overlay.remove();
         ns.state.currentTargetEl = null;
       });
 
-    document.getElementById("ig-replace-yes").addEventListener("click", () => {
+    overlay.querySelector("#ig-replace-yes").addEventListener("click", () => {
       overlay.remove();
 
-      // Existing modification ko pending mein load karo edit ke liye
       ns.state.pendingModification = JSON.parse(JSON.stringify(existingMod));
       ns.state.pendingModification._editingId = existingMod.id;
       ns.state.currentTargetEl = el;
