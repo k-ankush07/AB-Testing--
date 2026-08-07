@@ -332,7 +332,7 @@ export default function Experiment() {
                 <InlineStack align="space-between" blockAlign="center">
                     <BlockStack gap="050">
                         <InlineStack gap="100">
-                            <Link to="/app">
+                            <Link to="/app" style={{ textDecoration: "none" }}>
                                 <Text as="span" tone="subdued">Content</Text>
                             </Link>
                             <Text as="span" tone="subdued">›</Text>
